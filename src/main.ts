@@ -5,6 +5,7 @@ import { download, deserialize, pickFile, serialize } from './io/file';
 import { sceneToUtm } from './io/geo';
 import { emptyProject } from './model/defaults';
 import { demoProject } from './model/demo';
+import { isStaleDemo, migrateProject } from './model/migrate';
 import { idbGet, Store } from './model/store';
 import type { Project } from './model/types';
 import { Viewport } from './scene/viewport';
@@ -26,8 +27,19 @@ import { TimelineBar } from './ui/timeline';
 async function boot() {
   const saved = await idbGet<{ project: Project; assets: Record<string, string> }>('project');
   const demo = demoProject();
-  const store = new Store(saved?.project?.terrain?.base ? saved.project : demo.project);
-  store.assets = saved?.project?.terrain?.base ? new Map(Object.entries(saved.assets ?? {})) : demo.assets;
+  // Una copia guardada del ejemplo antiguo (animación por claves) se sustituye por el ejemplo actual;
+  // cualquier otro proyecto guardado se pone al día.
+  let usable = !!saved?.project?.terrain?.base;
+  let notice = '';
+  if (usable && isStaleDemo(saved!.project)) {
+    usable = false;
+    notice = 'El escenario de ejemplo se ha actualizado a la nueva versión con simulación física.';
+  } else if (usable) {
+    const n = migrateProject(saved!.project);
+    if (n) notice = `${n} vehículo(s) con trayectoria antigua convertidos a conducción simulada: revisa su velocidad y acciones.`;
+  }
+  const store = new Store(usable ? saved!.project : demo.project);
+  store.assets = usable ? new Map(Object.entries(saved!.assets ?? {})) : demo.assets;
 
   const vpEl = document.getElementById('viewport')!;
   const vp = new Viewport(vpEl);
@@ -67,6 +79,7 @@ async function boot() {
   buildCompass(vp, vpEl);
 
   document.getElementById('loading')?.remove();
+  if (notice) setTimeout(() => toast(notice), 600);
   (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player };
 }
 
@@ -223,7 +236,9 @@ function buildTopbar(ed: Editor, store: Store, world: World) {
         if (!f) return;
         try {
           const { project, assets } = deserialize(await f.text());
+          const n = migrateProject(project);
           store.load(project, assets);
+          if (n) toast(`${n} vehículo(s) con trayectoria antigua convertidos a conducción simulada.`);
           toast(`Abierto: ${project.name}`);
         } catch (e) {
           toast((e as Error).message, 'error');

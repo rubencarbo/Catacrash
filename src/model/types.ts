@@ -377,7 +377,7 @@ export interface Timeline {
 }
 
 export interface Project {
-  version: 1;
+  version: number;
   name: string;
   terrain: TerrainData;
   entities: Entity[];
