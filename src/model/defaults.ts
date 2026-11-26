@@ -6,6 +6,7 @@ import type {
   Params,
   Project,
   RoadProfile,
+  TerrainData,
 } from './types';
 
 export const BAND_LABELS: Record<BandType, string> = {
@@ -161,6 +162,35 @@ export const LINEAR_DEFS: Record<LinearType, LinearDef> = {
     defaults: { altura: 0.15, ancho: 0.15, curva: true },
   },
 };
+
+// ---------- Remuestreo del terreno ----------
+
+/** Cambia tamaño y resolución del terreno conservando el relieve (bilineal; fuera del área anterior se prolonga el borde). */
+export function resampleTerrain(t: TerrainData, size: number, step: number): TerrainData {
+  const segs = Math.max(10, Math.round(size / step));
+  const n = segs + 1;
+  const base = new Float32Array(n * n);
+  const on = t.segs + 1;
+  const ohalf = t.size / 2;
+  const ostep = t.size / t.segs;
+  const sample = (x: number, z: number) => {
+    const fx = Math.max(0, Math.min(t.segs - 1e-6, (x + ohalf) / ostep));
+    const fz = Math.max(0, Math.min(t.segs - 1e-6, (z + ohalf) / ostep));
+    const i = Math.floor(fx);
+    const j = Math.floor(fz);
+    const u = fx - i;
+    const v = fz - j;
+    const a = t.base[j * on + i];
+    const b = t.base[j * on + i + 1];
+    const c = t.base[(j + 1) * on + i];
+    const d = t.base[(j + 1) * on + i + 1];
+    return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  };
+  const half = size / 2;
+  const st = size / segs;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) base[j * n + i] = sample(-half + i * st, -half + j * st);
+  return { size, segs, base };
+}
 
 // ---------- Proyecto vacío ----------
 

@@ -15,7 +15,13 @@ export class GeoBuf {
    * Banda horizontal: para cada muestra se colocan vértices en los desplazamientos laterales
    * `offsets` (en orden creciente, + = derecha) con cota relativa `h(o)`.
    */
-  strip(S: PathSample[], offsets: number[], h: (o: number, k: number) => number, uvScale = 4) {
+  strip(
+    S: PathSample[],
+    offsets: number[],
+    h: (o: number, k: number) => number,
+    uvScale = 4,
+    keep?: (x: number, z: number) => boolean,
+  ) {
     const base = this.count;
     const cols = offsets.length;
     for (let k = 0; k < S.length; k++) {
@@ -33,6 +39,12 @@ export class GeoBuf {
         const b = a + 1;
         const c = a + cols;
         const d = c + 1;
+        if (keep) {
+          const p = this.pos;
+          const cx = (p[a * 3] + p[b * 3] + p[c * 3] + p[d * 3]) / 4;
+          const cz = (p[a * 3 + 2] + p[b * 3 + 2] + p[c * 3 + 2] + p[d * 3 + 2]) / 4;
+          if (!keep(cx, cz)) continue;
+        }
         this.idx.push(a, b, c, b, d, c);
       }
     }
@@ -47,6 +59,7 @@ export class GeoBuf {
     faceRight: boolean,
     absolute = false,
     uvScale = 1,
+    keep?: (x: number, z: number) => boolean,
   ) {
     const base = this.count;
     for (let k = 0; k < S.length; k++) {
@@ -63,6 +76,10 @@ export class GeoBuf {
       const t0 = b0 + 1;
       const b1 = b0 + 2;
       const t1 = b0 + 3;
+      if (keep) {
+        const p = this.pos;
+        if (!keep((p[b0 * 3] + p[b1 * 3]) / 2, (p[b0 * 3 + 2] + p[b1 * 3 + 2]) / 2)) continue;
+      }
       if (faceRight) this.idx.push(b0, b1, t0, b1, t1, t0);
       else this.idx.push(b0, t0, b1, b1, t0, t1);
     }

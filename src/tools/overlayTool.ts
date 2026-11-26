@@ -74,7 +74,7 @@ export function addOverlay(ed: Editor, url: string, aspect: number, name: string
 export function overlayTool(ed: Editor): Tool {
   let calib: { id: string; a: THREE.Vector3 | null; b: THREE.Vector3 | null } | null = null;
   let removeWhite = true;
-  const pnoa = { lat: 40.4168, lon: -3.7038, size: 300 };
+  const pnoa = { lat: ed.store.project.geo?.lat ?? 40.4168, lon: ed.store.project.geo?.lon ?? -3.7038, size: ed.store.project.terrain.size };
   const markers = new THREE.Group();
   ed.vp.scene.add(markers);
   const dot = (p: THREE.Vector3) => {
@@ -235,9 +235,16 @@ export function overlayTool(ed: Editor): Tool {
               try {
                 toast('Descargando ortofoto del IGN…');
                 const r = await loadPnoa(pnoa.lat, pnoa.lon, pnoa.size);
-                ed.store.edit(() => (ed.store.project.geo = r.geo), { type: 'env' });
-                addOverlay(ed, r.url, 1, `Ortofoto PNOA ${pnoa.lat.toFixed(4)}, ${pnoa.lon.toFixed(4)}`, pnoa.size, 0, 0);
-                toast('Ortofoto cargada y georreferenciada en el origen de la escena.');
+                const g = ed.store.project.geo;
+                let cx = 0;
+                let cz = 0;
+                if (g && g.epsg === r.geo.epsg) {
+                  // Escena ya georreferenciada (p. ej. con relieve real): se coloca en su sitio
+                  cx = r.geo.e0 - g.e0;
+                  cz = g.n0 - r.geo.n0;
+                } else ed.store.edit(() => (ed.store.project.geo = r.geo), { type: 'env' });
+                addOverlay(ed, r.url, 1, `Ortofoto PNOA ${pnoa.lat.toFixed(4)}, ${pnoa.lon.toFixed(4)}`, pnoa.size, cx, cz);
+                toast('Ortofoto cargada y georreferenciada a escala real.');
               } catch (err) {
                 toast((err as Error).message, 'error', 9000);
               }

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { Editor, Tool } from '../editor';
 import type { SculptMode } from '../scene/terrain';
-import { h, fmt } from '../ui/dom';
+import { h, fmt, toast } from '../ui/dom';
+import { resampleTerrain } from '../model/defaults';
+import { renderElevation } from './elevationPanel';
 import { ICON } from '../ui/icons';
 import { valueNoise2D } from '../scene/utils';
 
@@ -180,6 +182,42 @@ export function sculptTool(ed: Editor): Tool {
           gen('Ladera', (x, z) => -x * 0.08 + vn(x / 60, z / 60) * 4),
         ),
       );
+      el.append(h('div', { class: 'cat-title' }, 'Extensión y resolución'));
+      const t = ed.store.project.terrain;
+      const curStep = t.size / t.segs;
+      const sizeSel = h('select', {});
+      for (const v of [150, 200, 300, 400, 600, 800, 1000]) sizeSel.append(h('option', { value: v, selected: Math.abs(v - t.size) < 1 }, `${v} × ${v} m`));
+      if (![150, 200, 300, 400, 600, 800, 1000].some((v) => Math.abs(v - t.size) < 1)) sizeSel.append(h('option', { value: t.size, selected: true }, `${t.size} × ${t.size} m`));
+      const stepSel = h('select', {});
+      for (const [v, l] of [
+        [2, '2 m (zonas amplias)'],
+        [1, '1 m (recomendado)'],
+        [0.5, '0,5 m (máximo detalle)'],
+      ] as [number, string][])
+        stepSel.append(h('option', { value: v, selected: Math.abs(v - curStep) < 0.01 }, l));
+      el.append(
+        h('label', { class: 'field' }, h('span', {}, 'Tamaño'), sizeSel),
+        h('label', { class: 'field' }, h('span', {}, 'Malla'), stepSel),
+        h(
+          'button',
+          {
+            class: 'btn',
+            onclick: () => {
+              const size = Number(sizeSel.value);
+              const step = Number(stepSel.value);
+              const verts = (size / step + 1) ** 2;
+              if (verts > 1.7e6) {
+                toast(`Demasiados puntos (${Math.round(verts / 1000)} mil). Reduce el tamaño o usa una malla más gruesa.`, 'error');
+                return;
+              }
+              ed.store.edit(() => (ed.store.project.terrain = resampleTerrain(ed.store.project.terrain, size, step)), { type: 'terrain' });
+              toast(`Terreno: ${size} × ${size} m con malla de ${String(step).replace('.', ',')} m.`);
+            },
+          },
+          'Aplicar',
+        ),
+      );
+      renderElevation(el, ed);
       el.append(h('p', { class: 'muted' }, 'Las carreteras y ríos excavan o rellenan el terreno automáticamente (desmontes, terraplenes y cauces).'));
     },
   };

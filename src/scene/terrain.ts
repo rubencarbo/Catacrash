@@ -17,6 +17,30 @@ export interface Corridor {
   inset: number;
 }
 
+/** Explanación circular (glorietas). */
+export interface RadialShaper {
+  kind: 'radial';
+  cx: number;
+  cz: number;
+  R: number;
+  talud: number;
+  height: (r: number) => number;
+  inset: number;
+}
+
+/** Explanación de un polígono triangulado (áreas pavimentadas, isletas). */
+export interface AreaShaper {
+  kind: 'area';
+  /** Contorno con cotas: [x, y, z]. */
+  ring: [number, number, number][];
+  /** Triángulos como índices del contorno. */
+  tris: number[][];
+  talud: number;
+  inset: number;
+}
+
+export type Shaper = (Corridor & { kind?: 'corridor' }) | RadialShaper | AreaShaper;
+
 export type SculptMode = 'subir' | 'bajar' | 'suavizar' | 'aplanar' | 'cota';
 
 const GRASS = new THREE.Color(0x6b7f45);
@@ -169,10 +193,107 @@ export class Terrain {
 
   // ---------- explanaciones ----------
   /** Recalcula `final` a partir de `base` y las franjas de carreteras/ríos. */
-  rebuild(corridors: Corridor[]) {
+  rebuild(shapers: Shaper[]) {
     this.final.set(this.base);
-    for (const c of corridors) this.applyCorridor(c);
+    for (const c of shapers) {
+      if (c.kind === 'radial') this.applyRadial(c);
+      else if (c.kind === 'area') this.applyArea(c);
+      else this.applyCorridor(c);
+    }
     this.updateGeometry();
+  }
+
+  private range(minX: number, maxX: number, minZ: number, maxZ: number) {
+    return {
+      i0: Math.max(0, Math.floor((minX + this.half) / this.step)),
+      i1: Math.min(this.segs, Math.ceil((maxX + this.half) / this.step)),
+      j0: Math.max(0, Math.floor((minZ + this.half) / this.step)),
+      j1: Math.min(this.segs, Math.ceil((maxZ + this.half) / this.step)),
+    };
+  }
+
+  private applyRadial(c: RadialShaper) {
+    const reach = c.R + c.talud;
+    const { i0, i1, j0, j1 } = this.range(c.cx - reach, c.cx + reach, c.cz - reach, c.cz + reach);
+    const edge = c.height(c.R);
+    for (let j = j0; j <= j1; j++)
+      for (let i = i0; i <= i1; i++) {
+        const x = -this.half + i * this.step;
+        const z = -this.half + j * this.step;
+        const r = Math.hypot(x - c.cx, z - c.cz);
+        if (r > reach) continue;
+        const v = j * this.n + i;
+        if (r <= c.R) this.final[v] = c.height(r) - c.inset;
+        else {
+          const w = smoothstep((r - c.R) / Math.max(0.01, c.talud));
+          this.final[v] = edge - c.inset * 0.5 + (this.final[v] - edge + c.inset * 0.5) * w;
+        }
+      }
+  }
+
+  private applyArea(c: AreaShaper) {
+    const R = c.ring;
+    if (R.length < 3) return;
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const [x, , z] of R) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+    const t = c.talud;
+    const { i0, i1, j0, j1 } = this.range(minX - t, maxX + t, minZ - t, maxZ + t);
+    const inPoly = (x: number, z: number) => {
+      let inside = false;
+      for (let a = 0, b = R.length - 1; a < R.length; b = a++) {
+        const [xa, , za] = R[a];
+        const [xb, , zb] = R[b];
+        if (za > z !== zb > z && x < ((xb - xa) * (z - za)) / (zb - za) + xa) inside = !inside;
+      }
+      return inside;
+    };
+    const triH = (x: number, z: number) => {
+      for (const [a, b, d] of c.tris) {
+        const [x1, y1, z1] = R[a];
+        const [x2, y2, z2] = R[b];
+        const [x3, y3, z3] = R[d];
+        const det = (z2 - z3) * (x1 - x3) + (x3 - x2) * (z1 - z3);
+        if (Math.abs(det) < 1e-9) continue;
+        const l1 = ((z2 - z3) * (x - x3) + (x3 - x2) * (z - z3)) / det;
+        const l2 = ((z3 - z1) * (x - x3) + (x1 - x3) * (z - z3)) / det;
+        const l3 = 1 - l1 - l2;
+        if (l1 >= -1e-6 && l2 >= -1e-6 && l3 >= -1e-6) return l1 * y1 + l2 * y2 + l3 * y3;
+      }
+      return null;
+    };
+    for (let j = j0; j <= j1; j++)
+      for (let i = i0; i <= i1; i++) {
+        const x = -this.half + i * this.step;
+        const z = -this.half + j * this.step;
+        const v = j * this.n + i;
+        if (inPoly(x, z)) {
+          const h = triH(x, z);
+          if (h !== null) this.final[v] = h - c.inset;
+          continue;
+        }
+        // distancia al contorno
+        let best = Infinity;
+        let bh = 0;
+        for (let a = 0, b = R.length - 1; a < R.length; b = a++) {
+          const [xa, ya, za] = R[b];
+          const [xb, yb, zb] = R[a];
+          const dx = xb - xa;
+          const dz = zb - za;
+          const l2 = dx * dx + dz * dz || 1;
+          const tt = clamp(((x - xa) * dx + (z - za) * dz) / l2, 0, 1);
+          const d = Math.hypot(x - (xa + dx * tt), z - (za + dz * tt));
+          if (d < best) {
+            best = d;
+            bh = ya + (yb - ya) * tt;
+          }
+        }
+        if (best > t) continue;
+        const w = smoothstep(best / Math.max(0.01, t));
+        this.final[v] = bh - c.inset * 0.5 + (this.final[v] - bh + c.inset * 0.5) * w;
+      }
   }
 
   private applyCorridor(c: Corridor) {
@@ -260,7 +381,7 @@ export class Terrain {
       c.copy(GRASS).lerp(DRY, clamp(0.35 + nz * 0.8, 0, 1));
       // Desmontes y terraplenes recién hechos: tierra
       const cut = Math.abs(this.final[k] - this.base[k]);
-      if (cut > 0.15) c.lerp(DIRT, clamp((cut - 0.15) * 0.8, 0, 0.75));
+      if (cut > 0.3) c.lerp(DIRT, clamp((cut - 0.3) * 0.5, 0, 0.6));
       if (slope > 0.12) c.lerp(DIRT, clamp((slope - 0.12) * 4, 0, 1));
       if (slope > 0.35) c.lerp(ROCK, clamp((slope - 0.35) * 3, 0, 1));
       col.setXYZ(k, c.r, c.g, c.b);

@@ -4,6 +4,9 @@ const svg = (body: string) =>
 export const ICON = {
   select: svg('<path d="M5 3l14 8-6 1.6L10 19z"/>'),
   road: svg('<path d="M8 3L4 21M16 3l4 18M12 4v3M12 10v4M12 17v3"/>'),
+  area: svg('<path d="M4 7l7-3 9 4-2 11-12-1z"/><path d="M8 12l3 3M11 9l5 5"/>'),
+  roundabout: svg('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
+  camera: svg('<path d="M4 8h4l2-2h4l2 2h4v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   river: svg('<path d="M3 8c3-2 5 2 9 0s6-2 9 0M3 13c3-2 5 2 9 0s6-2 9 0M3 18c3-2 5 2 9 0s6-2 9 0"/>'),
   linear: svg('<path d="M4 5v15M10 5v15M16 5v15M22 5v15M4 9h18M4 15h18"/>'),
   props: svg('<path d="M12 21v-6M12 15c-4 0-6-2.5-6-5.5S8.5 3 12 3s6 3.5 6 6.5S16 15 12 15z"/>'),

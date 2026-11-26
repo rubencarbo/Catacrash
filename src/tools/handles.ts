@@ -3,7 +3,7 @@ import type { Entity, OverlayEntity } from '../model/types';
 import { overlayCorners } from '../scene/overlay';
 import type { World } from '../scene/world';
 
-export type HandleKind = 'point' | 'mid' | 'ovCenter' | 'ovCorner';
+export type HandleKind = 'point' | 'mid' | 'ovCenter' | 'ovCorner' | 'center' | 'radius';
 
 const geoPoint = new THREE.SphereGeometry(1, 16, 12);
 const geoMid = new THREE.SphereGeometry(0.6, 12, 8);
@@ -59,18 +59,26 @@ export class Handles {
     this.clear();
     if (!e || e.hidden) return;
     const t = this.world.terrain;
-    if (e.kind === 'road' || e.kind === 'river' || e.kind === 'linear') {
+    if (e.kind === 'road' || e.kind === 'river' || e.kind === 'linear' || e.kind === 'area') {
+      const closed = e.kind === 'area';
       const pts = e.points.map((p) => {
-        const y = e.kind === 'road' ? this.world.surfaceHeight(p.x, p.z) : t.height(p.x, p.z);
+        const y = e.kind === 'road' || e.kind === 'area' ? this.world.surfaceHeight(p.x, p.z) : t.height(p.x, p.z);
         return new THREE.Vector3(p.x, y + 0.4, p.z);
       });
       pts.forEach((p, i) => this.add('point', i, p, i === selectedPoint));
-      for (let i = 0; i < pts.length - 1; i++) {
-        const m = pts[i].clone().lerp(pts[i + 1], 0.5);
+      const segs = closed ? pts.length : pts.length - 1;
+      for (let i = 0; i < segs; i++) {
+        const m = pts[i].clone().lerp(pts[(i + 1) % pts.length], 0.5);
         m.y = t.height(m.x, m.z) + 0.4;
         this.add('mid', i, m);
       }
-      this.polyline(pts);
+      this.polyline(pts, closed && pts.length > 2);
+    } else if (e.kind === 'roundabout') {
+      const y = this.world.surfaceHeight(e.cx, e.cz) + 0.6;
+      this.add('center', 0, new THREE.Vector3(e.cx, y, e.cz));
+      this.add('radius', 0, new THREE.Vector3(e.cx + e.radius, t.height(e.cx + e.radius, e.cz) + 0.5, e.cz));
+    } else if (e.kind === 'photo') {
+      this.add('center', 0, new THREE.Vector3(e.x, t.height(e.x, e.z) + 0.3, e.z));
     } else if (e.kind === 'overlay') {
       const o = e as OverlayEntity;
       const corners = overlayCorners(o).map(([x, z]) => new THREE.Vector3(x, t.height(x, z) + 0.5, z));

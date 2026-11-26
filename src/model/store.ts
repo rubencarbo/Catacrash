@@ -60,7 +60,10 @@ export class Store {
   end() {
     if (!this.pending) return;
     this.undoStack.push(this.pending);
-    if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
+    // Con terrenos grandes cada paso ocupa varios MB: se limita la memoria total (~150 MB).
+    const bytes = this.project.terrain.base.byteLength + 200_000;
+    const max = Math.max(8, Math.min(MAX_UNDO, Math.floor(150e6 / bytes)));
+    while (this.undoStack.length > max) this.undoStack.shift();
     this.redoStack = [];
     this.pending = null;
   }

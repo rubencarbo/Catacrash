@@ -2,7 +2,8 @@ import type { Editor } from '../editor';
 import { BAND_DEFAULT_WIDTH, BAND_LABELS, LINE_LABELS, LINEAR_DEFS, LINEAR_FIELDS, ROAD_PRESETS } from '../model/defaults';
 import type { FieldDef } from '../model/fields';
 import type { Change } from '../model/store';
-import type { Band, BandType, Entity, LineType, LinearType, ParamValue, RoadEntity } from '../model/types';
+import type { AreaMaterial, Band, BandType, Entity, LineType, LinearType, ParamValue, RoadEntity, RoundaboutEntity } from '../model/types';
+import { AREA_LABELS } from '../scene/area';
 import { CATALOG } from '../scene/props';
 import { clear, fmt, h } from './dom';
 import { ICON } from './icons';
@@ -137,6 +138,87 @@ export class Inspector {
       case 'road':
         this.renderRoad(e);
         break;
+      case 'area': {
+        const m = h('select', { onchange: (ev: Event) => this.change(e, () => (e.material = (ev.target as HTMLSelectElement).value as AreaMaterial)) });
+        for (const [k, l] of Object.entries(AREA_LABELS)) m.append(h('option', { value: k, selected: k === e.material }, l));
+        el.append(
+          h('div', { class: 'panel-title' }, 'Área'),
+          h('label', { class: 'field' }, h('span', {}, 'Material'), m),
+          h(
+            'div',
+            { class: 'grid2' },
+            this.numberField('Altura (bordillo)', e.raise, (v) => this.change(e, () => (e.raise = Math.max(0, v))), 'm', 0.05),
+            this.numberField('Talud', e.talud, (v) => this.change(e, () => (e.talud = Math.max(0.2, v))), 'm', 0.5),
+            this.numberField('Ángulo cebreado', e.angle, (v) => this.change(e, () => (e.angle = v)), '°', 5),
+          ),
+          h('p', { class: 'muted' }, `${e.points.length} vértices. Los que caen sobre una calzada toman su cota; selecciona un vértice para fijarla a mano.`),
+        );
+        break;
+      }
+      case 'roundabout': {
+        const sel = (label: string, value: string, opts: [string, string][], set: (v: string) => void) => {
+          const s2 = h('select', { onchange: (ev: Event) => this.change(e, () => set((ev.target as HTMLSelectElement).value)) });
+          for (const [k, l] of opts) s2.append(h('option', { value: k, selected: k === value }, l));
+          return h('label', { class: 'field' }, h('span', {}, label), s2);
+        };
+        const t = this.ed.world.terrain;
+        el.append(
+          h('div', { class: 'panel-title' }, 'Glorieta'),
+          h(
+            'div',
+            { class: 'grid2' },
+            this.numberField('Radio exterior', e.radius, (v) => this.change(e, () => (e.radius = Math.max(e.width + 1.5, v))), 'm', 0.5),
+            this.numberField('Ancho calzada', e.width, (v) => this.change(e, () => (e.width = Math.max(3, v))), 'm', 0.25),
+            this.numberField('Carriles', e.lanes, (v) => this.change(e, () => (e.lanes = Math.max(1, Math.min(4, Math.round(v))))), '', 1),
+            this.numberField('Gorjal', e.apron, (v) => this.change(e, () => (e.apron = Math.max(0, v))), 'm', 0.25),
+            this.numberField('Centro X', e.cx, (v) => this.change(e, () => (e.cx = v))),
+            this.numberField('Centro Z', e.cz, (v) => this.change(e, () => (e.cz = v))),
+          ),
+          sel('Isleta central', e.island, [
+            ['hierba', 'Ajardinada (montículo)'],
+            ['tierra', 'Tierra'],
+            ['pavimento', 'Pavimentada'],
+          ], (v) => (e.island = v as RoundaboutEntity['island'])),
+          sel('Borde exterior', e.outer, [
+            ['arcen', 'Arcén'],
+            ['acera', 'Acera con bordillo'],
+            ['ninguno', 'Ninguno'],
+          ], (v) => (e.outer = v as RoundaboutEntity['outer'])),
+          e.outer !== 'ninguno' ? this.numberField('Ancho borde exterior', e.outerWidth, (v) => this.change(e, () => (e.outerWidth = Math.max(0.3, v)))) : '',
+          this.numberField('Talud', e.talud, (v) => this.change(e, () => (e.talud = Math.max(0.5, v))), 'm', 0.5),
+          h(
+            'label',
+            { class: 'check' },
+            h('input', {
+              type: 'checkbox',
+              checked: e.h !== null,
+              onchange: (ev: Event) => this.change(e, () => (e.h = (ev.target as HTMLInputElement).checked ? Number(t.baseHeight(e.cx, e.cz).toFixed(2)) : null)),
+            }),
+            'Cota fija del centro',
+          ),
+          e.h !== null ? this.numberField('Cota', e.h, (v) => this.change(e, () => (e.h = v))) : '',
+        );
+        break;
+      }
+      case 'photo': {
+        el.append(
+          h('div', { class: 'panel-title' }, 'Foto de referencia'),
+          h('button', { class: 'btn primary', onclick: () => this.ed.photoMatch?.(e.id) }, 'Ver desde aquí y coincidir'),
+          h(
+            'div',
+            { class: 'grid2' },
+            this.numberField('X', e.x, (v) => this.change(e, () => (e.x = v))),
+            this.numberField('Z', e.z, (v) => this.change(e, () => (e.z = v))),
+            this.numberField('Rumbo', e.heading, (v) => this.change(e, () => (e.heading = ((v % 360) + 360) % 360)), '°', 0.5),
+            this.numberField('Inclinación', e.pitch, (v) => this.change(e, () => (e.pitch = v)), '°', 0.25),
+            this.numberField('Giro', e.roll, (v) => this.change(e, () => (e.roll = v)), '°', 0.25),
+            this.numberField('Altura cámara', e.height, (v) => this.change(e, () => (e.height = Math.max(0.2, v))), 'm', 0.05),
+            e.mode !== 'esferica' ? this.numberField('Campo horiz.', e.hfov, (v) => this.change(e, () => (e.hfov = Math.max(5, Math.min(360, v)))), '°', 1) : null,
+          ),
+          h('p', { class: 'muted' }, e.mode === 'esferica' ? 'Foto 360°' : e.mode === 'cilindrica' ? 'Panorámica de móvil' : 'Foto normal'),
+        );
+        break;
+      }
       case 'river':
         el.append(
           h('div', { class: 'panel-title' }, 'Río / cauce'),
@@ -251,7 +333,7 @@ export class Inspector {
         'Cota fija (rampas, puentes, terraplenes)',
       ),
       fixed ? this.numberField('Cota', p.h!, (v) => this.change(e, () => (p.h = v))) : h('p', { class: 'muted' }, `Sigue el terreno: ${fmt(cur)} m`),
-      e.points.length > 2
+      e.points.length > ('kind' in e && e.kind === 'area' ? 3 : 2)
         ? h('button', { class: 'btn', onclick: () => this.ed.deleteSelection() }, 'Quitar este punto')
         : null,
     );
@@ -262,7 +344,17 @@ export class Inspector {
   private renderRoad(e: RoadEntity) {
     const el = this.el;
     const P = e.profile;
-    el.append(h('div', { class: 'panel-title' }, 'Sección transversal'));
+    const prio = h('select', { onchange: (ev: Event) => this.change(e, () => (e.priority = Number((ev.target as HTMLSelectElement).value))) });
+    for (const [v, l] of [
+      ['2', 'Principal'],
+      ['1', 'Normal'],
+      ['0', 'Secundaria'],
+    ])
+      prio.append(h('option', { value: v, selected: Number(v) === (e.priority ?? 1) }, l));
+    el.append(
+      h('label', { class: 'field' }, h('span', {}, 'Jerarquía en cruces'), prio),
+      h('div', { class: 'panel-title' }, 'Sección transversal'),
+    );
 
     // Diagrama de la sección
     const bar = h('div', { class: 'xsec' });

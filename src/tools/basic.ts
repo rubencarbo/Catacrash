@@ -3,7 +3,8 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { Editor, Tool, ToolEvent } from '../editor';
 import { LINEAR_DEFS, ROAD_PRESETS } from '../model/defaults';
 import { newId } from '../model/store';
-import type { CtrlPoint, Entity, LinearType, RiverEntity } from '../model/types';
+import type { AreaMaterial, CtrlPoint, Entity, LinearType, RiverEntity } from '../model/types';
+import { AREA_LABELS } from '../scene/area';
 import { h, fmt } from '../ui/dom';
 import { ICON } from '../ui/icons';
 
@@ -49,7 +50,7 @@ export function selectTool(ed: Editor): Tool {
 
 // ---------------- Dibujo de trazados ----------------
 
-type DrawKind = 'road' | 'river' | 'linear';
+type DrawKind = 'road' | 'river' | 'linear' | 'area';
 
 export function drawTool(ed: Editor, kind: DrawKind): Tool {
   let current: string | null = null;
@@ -59,7 +60,7 @@ export function drawTool(ed: Editor, kind: DrawKind): Tool {
   preview.visible = false;
   ed.vp.scene.add(preview);
 
-  const opts = { preset: 'convencional', linear: 'muro' as LinearType };
+  const opts = { preset: 'convencional', linear: 'muro' as LinearType, material: 'asfalto' as AreaMaterial, raise: 0 };
   const counters: Record<string, number> = {};
 
   const finish = () => {
@@ -68,7 +69,7 @@ export function drawTool(ed: Editor, kind: DrawKind): Tool {
     current = null;
     if (!id) return;
     const e = ed.store.get(id);
-    if (e && 'points' in e && e.points.length < 2) {
+    if (e && 'points' in e && e.points.length < (e.kind === 'area' ? 3 : 2)) {
       ed.store.remove(id);
       return;
     }
@@ -80,12 +81,24 @@ export function drawTool(ed: Editor, kind: DrawKind): Tool {
     road: { label: 'Dibujar carretera', icon: ICON.road, key: 'c' },
     river: { label: 'Dibujar río / cauce', icon: ICON.river, key: 'a' },
     linear: { label: 'Muros, vallas, guardarraíles, tendidos…', icon: ICON.linear, key: 'l' },
+    area: { label: 'Áreas: ensanches, isletas, explanadas', icon: ICON.area, key: 'b' },
   }[kind];
 
   const makeEntity = (p: CtrlPoint): Entity => {
     const n = (counters[kind] = (counters[kind] ?? ed.store.project.entities.filter((e) => e.kind === kind).length) + 1);
     if (kind === 'road')
       return { id: newId('r'), kind: 'road', name: `Carretera ${n}`, points: [p], profile: ROAD_PRESETS[opts.preset].make() };
+    if (kind === 'area')
+      return {
+        id: newId('a'),
+        kind: 'area',
+        name: `${opts.raise > 0 ? 'Isleta' : AREA_LABELS[opts.material]} ${n}`,
+        points: [p],
+        material: opts.material,
+        raise: opts.raise,
+        talud: 1.5,
+        angle: 45,
+      };
     if (kind === 'river')
       return { id: newId('w'), kind: 'river', name: `Río ${n}`, points: [p], width: 6, depth: 1.2, bank: 6, levelOffset: -1 } as RiverEntity;
     const def = LINEAR_DEFS[opts.linear];
@@ -165,7 +178,14 @@ export function drawTool(ed: Editor, kind: DrawKind): Tool {
         });
         for (const [k, p] of Object.entries(ROAD_PRESETS)) s.append(h('option', { value: k, selected: k === opts.preset }, p.label));
         el.append(h('label', { class: 'field' }, h('span', {}, 'Sección tipo'), s));
-        el.append(h('p', { class: 'muted' }, 'Dibuja el eje de la vía. Después podrás editar carriles, arcenes, aceras, cunetas, marcas viales, peralte y taludes.'));
+        el.append(
+          h('p', { class: 'muted' }, 'Dibuja el eje de la vía. Después podrás editar carriles, arcenes, aceras, cunetas, marcas viales, peralte y taludes.'),
+          h(
+            'p',
+            { class: 'muted' },
+            'Cruces: termina la vía secundaria dentro de la principal. Se recorta sola, toma la cota de la principal y la línea de borde se interrumpe. Para los chaflanes usa la herramienta Áreas.',
+          ),
+        );
       } else if (kind === 'linear') {
         const s = h('select', {
           onchange: (e: Event) => (opts.linear = (e.target as HTMLSelectElement).value as LinearType),
@@ -173,6 +193,25 @@ export function drawTool(ed: Editor, kind: DrawKind): Tool {
         for (const [k, d] of Object.entries(LINEAR_DEFS)) s.append(h('option', { value: k, selected: k === opts.linear }, d.label));
         el.append(h('label', { class: 'field' }, h('span', {}, 'Elemento'), s));
         el.append(h('p', { class: 'muted' }, 'Los elementos lineales se apoyan sobre el terreno y siguen sus desniveles. En los tendidos, cada punto es un poste.'));
+      } else if (kind === 'area') {
+        const m = h('select', { onchange: (e: Event) => (opts.material = (e.target as HTMLSelectElement).value as AreaMaterial) });
+        for (const [k, l] of Object.entries(AREA_LABELS)) m.append(h('option', { value: k, selected: k === opts.material }, l));
+        const r = h('select', { onchange: (e: Event) => (opts.raise = Number((e.target as HTMLSelectElement).value)) });
+        for (const [v, l] of [
+          ['0', 'Enrasada con la calzada'],
+          ['0.15', 'Elevada con bordillo (15 cm)'],
+          ['0.3', 'Elevada (30 cm)'],
+        ])
+          r.append(h('option', { value: v, selected: Number(v) === opts.raise }, l));
+        el.append(
+          h('label', { class: 'field' }, h('span', {}, 'Material'), m),
+          h('label', { class: 'field' }, h('span', {}, 'Altura'), r),
+          h(
+            'p',
+            { class: 'muted' },
+            'Dibuja el contorno con clics (mínimo 3 puntos). Los vértices que caen sobre una calzada toman su cota, así el ensanche de un cruce enlaza con las vías. Útil para chaflanes de cruces, isletas, cebreados, aparcamientos, explanadas o plazas.',
+          ),
+        );
       } else {
         el.append(h('p', { class: 'muted' }, 'Dibuja el eje del cauce siguiendo el fondo del valle. El terreno se excava automáticamente y se crea la lámina de agua.'));
       }

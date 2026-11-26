@@ -49,7 +49,10 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
   ];
   E.push({ id: newId('r'), kind: 'road', name: 'Carretera CV-123', points: pts(road), profile: ROAD_PRESETS.convencional.make() });
   const prof = E[E.length - 1];
-  if (prof.kind === 'road') prof.profile.center = 'continua';
+  if (prof.kind === 'road') {
+    prof.profile.center = 'continua';
+    prof.priority = 2;
+  }
 
   // Camino de tierra que sale hacia el oeste
   E.push({
@@ -63,7 +66,23 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
       [-140, -80],
     ]),
     profile: ROAD_PRESETS.camino.make(),
+    priority: 0,
   });
+  // Chaflanes del cruce con el camino (áreas de tierra compactada que enlazan los bordes)
+  const area = (name: string, arr: [number, number][]) =>
+    E.push({ id: newId('a'), kind: 'area', name, points: pts(arr), material: 'tierra', raise: 0, talud: 1.5, angle: 0 });
+  area('Chaflán sur del cruce', [
+    [-21.6, -56.7],
+    [-23.6, -60.7],
+    [-28.0, -62.4],
+    [-24.4, -59.95],
+  ]);
+  area('Chaflán norte del cruce', [
+    [-28.7, -70.65],
+    [-26.4, -66.23],
+    [-31.0, -68.14],
+    [-28.65, -68.3],
+  ]);
 
   // Guardarraíl en el lado del barranco (este), muro en el desmonte (oeste)
   linear('guardarrail', 'Bionda lado barranco', [
@@ -142,7 +161,7 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
     prop('hito_arista', `Hito de arista E${i + 1}`, x + 6, z, 270);
   });
   prop('farola', 'Farola acceso finca', -27, -55, 90, { altura: 7 });
-  prop('contenedor', 'Contenedor', -26, -70, 70, { tipo: 'resto' });
+  prop('contenedor', 'Contenedor', -35, -74, 70, { tipo: 'resto' });
 
   p.entities = E;
 

@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "geotiff": "^3.0.5",
     "proj4": "^2.23.0",
     "three": "^0.187.0"
   },

@@ -5,7 +5,10 @@ import { ICON } from './icons';
 
 const GROUPS: [EntityKind, string, string][] = [
   ['overlay', 'Calcos', ICON.image],
+  ['photo', 'Fotos de referencia', ICON.camera],
   ['road', 'Carreteras', ICON.road],
+  ['roundabout', 'Glorietas', ICON.roundabout],
+  ['area', 'Áreas e isletas', ICON.area],
   ['river', 'Ríos', ICON.river],
   ['linear', 'Elementos lineales', ICON.linear],
   ['prop', 'Objetos', ICON.props],

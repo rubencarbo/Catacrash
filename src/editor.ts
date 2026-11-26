@@ -117,7 +117,7 @@ export class Editor {
   groundPick(rc: THREE.Raycaster): THREE.Vector3 | null {
     const t = this.world.terrain.raycast(rc.ray);
     const surf = this.store.project.entities
-      .filter((e) => (e.kind === 'road' || e.kind === 'river') && !e.hidden)
+      .filter((e) => (e.kind === 'road' || e.kind === 'river' || e.kind === 'roundabout' || e.kind === 'area') && !e.hidden)
       .map((e) => this.world.objects.get(e.id))
       .filter((o): o is THREE.Object3D => !!o);
     const hit = rc.intersectObjects(surf, true)[0];
@@ -189,7 +189,7 @@ export class Editor {
     this.store.begin();
     if (kind === 'mid' && 'points' in e) {
       const a = e.points[index];
-      const b = e.points[index + 1];
+      const b = e.points[(index + 1) % e.points.length];
       e.points.splice(index + 1, 0, { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, h: a.h !== null && b.h !== null ? (a.h + b.h) / 2 : null });
       kind = 'point';
       index = index + 1;
@@ -200,6 +200,10 @@ export class Editor {
     }
     const drag: HandleDrag = { kind, index, id };
     if (kind === 'ovCenter' && e.kind === 'overlay' && ev.ground) drag.grab = new THREE.Vector2(e.cx - ev.ground.x, e.cz - ev.ground.z);
+    if (kind === 'center' && ev.ground) {
+      if (e.kind === 'roundabout') drag.grab = new THREE.Vector2(e.cx - ev.ground.x, e.cz - ev.ground.z);
+      if (e.kind === 'photo') drag.grab = new THREE.Vector2(e.x - ev.ground.x, e.z - ev.ground.z);
+    }
     this.handleDrag = drag;
   }
 
@@ -211,6 +215,14 @@ export class Editor {
     if (d.kind === 'point' && 'points' in e) {
       e.points[d.index].x = g.x;
       e.points[d.index].z = g.z;
+    } else if (d.kind === 'center' && e.kind === 'roundabout') {
+      e.cx = g.x + (d.grab?.x ?? 0);
+      e.cz = g.z + (d.grab?.y ?? 0);
+    } else if (d.kind === 'center' && e.kind === 'photo') {
+      e.x = g.x + (d.grab?.x ?? 0);
+      e.z = g.z + (d.grab?.y ?? 0);
+    } else if (d.kind === 'radius' && e.kind === 'roundabout') {
+      e.radius = Math.max(e.width + 1.5, Math.hypot(g.x - e.cx, g.z - e.cz));
     } else if (e.kind === 'overlay') {
       if (d.kind === 'ovCenter') {
         e.cx = g.x + (d.grab?.x ?? 0);
@@ -252,6 +264,8 @@ export class Editor {
   setHint: ((s: string) => void) | null = null;
   /** Vuelve a dibujar el panel de opciones de la herramienta activa. */
   refreshOptions: (() => void) | null = null;
+  /** Entra en el modo «coincidir foto» para la foto indicada. */
+  photoMatch: ((id: string) => void) | null = null;
 
   setGizmoMode(mode: 'translate' | 'rotate') {
     this.gizmo.setMode(mode);
@@ -293,7 +307,7 @@ export class Editor {
     if (!sel) return;
     const e = this.store.get(sel.id);
     if (!e) return;
-    if (sel.point !== undefined && 'points' in e && e.points.length > 2) {
+    if (sel.point !== undefined && 'points' in e && e.points.length > (e.kind === 'area' ? 3 : 2)) {
       this.store.edit(() => e.points.splice(sel.point!, 1), { type: 'entity', id: e.id });
       this.select(e.id);
       return;
@@ -312,6 +326,8 @@ export class Editor {
       c.x += 2;
       c.z += 2;
     } else if ('points' in c) c.points.forEach((p) => ((p.x += 3), (p.z += 3)));
+    else if (c.kind === 'roundabout') c.cx += c.radius * 2.5;
+    else if (c.kind === 'photo') c.x += 2;
     else if (c.kind === 'overlay') c.cx += 5;
     this.store.add(c);
     this.select(c.id);

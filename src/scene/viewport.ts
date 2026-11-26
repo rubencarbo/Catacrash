@@ -88,6 +88,16 @@ export class Viewport {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
+  /** Ajusta la cámara de sombras al tamaño del terreno. */
+  setShadowExtent(half: number) {
+    const sc = this.sun.shadow.camera;
+    sc.left = sc.bottom = -half;
+    sc.right = sc.top = half;
+    sc.far = Math.max(900, half * 5);
+    sc.updateProjectionMatrix();
+    this.controls.maxDistance = Math.max(1500, half * 5);
+  }
+
   onFrame(cb: (dt: number) => void) {
     this.frameCbs.push(cb);
   }
@@ -134,13 +144,13 @@ export class Viewport {
     const day = clamp(sinEl * 4, 0, 1); // pleno día por encima de ~15°
     const twilight = clamp((sinEl + 0.1) * 10, 0, 1); // 0 = noche cerrada, 1 = sol en el horizonte
     if (elevation > 0) {
-      this.sun.position.copy(dir.clone().multiplyScalar(400));
+      this.sun.position.copy(dir.clone().multiplyScalar(Math.max(400, -this.sun.shadow.camera.left * 2.2)));
       this.sun.color.setHSL(0.09, 0.7 * (1 - day) + 0.1, 0.5 + 0.45 * day);
       this.sun.intensity = 0.4 + 2.8 * day;
     } else {
       // Luz de luna difusa (la escena debe seguir siendo legible de noche)
       const moon = new THREE.Vector3(0.35, 0.75, 0.45).normalize();
-      this.sun.position.copy(moon.multiplyScalar(400));
+      this.sun.position.copy(moon.multiplyScalar(Math.max(400, -this.sun.shadow.camera.left * 2.2)));
       this.sun.color.set(0x9db4e0);
       this.sun.intensity = 0.8 + 0.4 * twilight;
     }

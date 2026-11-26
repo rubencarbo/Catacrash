@@ -67,6 +67,62 @@ export interface RoadEntity extends EntityBase {
   kind: 'road';
   points: CtrlPoint[];
   profile: RoadProfile;
+  /** Jerarquía en cruces: 0 secundaria, 1 normal, 2 principal. La de mayor rango manda en el solape. */
+  priority?: number;
+}
+
+export type AreaMaterial = 'asfalto' | 'hormigon' | 'adoquin' | 'acera' | 'tierra' | 'grava' | 'hierba' | 'cebreado';
+
+/** Superficie poligonal: ensanches de cruces, isletas, explanadas, aparcamientos, plazas… */
+export interface AreaEntity extends EntityBase {
+  kind: 'area';
+  points: CtrlPoint[];
+  material: AreaMaterial;
+  /** Altura sobre la rasante (0 = enrasada; >0 = isleta con bordillo). */
+  raise: number;
+  talud: number;
+  /** Orientación de las franjas del cebreado (grados). */
+  angle: number;
+}
+
+/** Glorieta paramétrica. */
+export interface RoundaboutEntity extends EntityBase {
+  kind: 'roundabout';
+  cx: number;
+  cz: number;
+  /** Cota fija del centro (null = terreno). */
+  h: number | null;
+  /** Radio exterior de la calzada anular. */
+  radius: number;
+  /** Ancho de la calzada anular. */
+  width: number;
+  lanes: number;
+  /** Gorjal (anillo montable junto a la isleta). */
+  apron: number;
+  island: 'hierba' | 'pavimento' | 'tierra';
+  outer: 'ninguno' | 'arcen' | 'acera';
+  outerWidth: number;
+  talud: number;
+}
+
+/** Foto de referencia situada en la escena (360°, panorámica de móvil o foto normal). */
+export interface PhotoEntity extends EntityBase {
+  kind: 'photo';
+  asset: ID;
+  x: number;
+  z: number;
+  /** Altura de la cámara sobre el suelo. */
+  height: number;
+  /** Rumbo del centro de la imagen (grados desde el norte, sentido horario). */
+  heading: number;
+  pitch: number;
+  roll: number;
+  mode: 'esferica' | 'cilindrica' | 'plana';
+  /** Campo de visión horizontal (cilíndrica y plana). */
+  hfov: number;
+  /** alto / ancho */
+  aspect: number;
+  opacity: number;
 }
 
 export interface RiverEntity extends EntityBase {
@@ -126,9 +182,17 @@ export interface OverlayEntity extends EntityBase {
   onRoads: boolean;
 }
 
-export type Entity = RoadEntity | RiverEntity | LinearEntity | PropEntity | OverlayEntity;
+export type Entity =
+  | RoadEntity
+  | RiverEntity
+  | LinearEntity
+  | PropEntity
+  | OverlayEntity
+  | AreaEntity
+  | RoundaboutEntity
+  | PhotoEntity;
 export type EntityKind = Entity['kind'];
-export type SplineEntity = RoadEntity | RiverEntity | LinearEntity;
+export type SplineEntity = RoadEntity | RiverEntity | LinearEntity | AreaEntity;
 
 export interface TerrainData {
   /** Lado del terreno cuadrado (m). */
@@ -156,6 +220,8 @@ export interface GeoRef {
   /** Coordenadas UTM del origen de la escena. */
   e0: number;
   n0: number;
+  /** Altitud real que corresponde a la cota 0 de la escena (si se importó elevación). */
+  h0?: number;
 }
 
 export interface Project {

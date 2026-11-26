@@ -12,6 +12,8 @@ import { World } from './scene/world';
 import { drawTool, measureTool, selectTool } from './tools/basic';
 import { overlayTool } from './tools/overlayTool';
 import { placeTool } from './tools/place';
+import { photoTool } from './tools/photoTool';
+import { roundaboutTool } from './tools/roundaboutTool';
 import { sculptTool } from './tools/sculpt';
 import { clear, confirmDialog, fmt, h, toast } from './ui/dom';
 import { ICON } from './ui/icons';
@@ -31,11 +33,14 @@ async function boot() {
 
   ed.register(selectTool(ed));
   ed.register(drawTool(ed, 'road'));
+  ed.register(roundaboutTool(ed));
+  ed.register(drawTool(ed, 'area'));
   ed.register(drawTool(ed, 'river'));
   ed.register(drawTool(ed, 'linear'));
   ed.register(placeTool(ed));
   ed.register(sculptTool(ed));
   ed.register(overlayTool(ed));
+  ed.register(photoTool(ed));
   ed.register(measureTool(ed));
 
   new Outliner(document.getElementById('outliner')!, ed);
@@ -284,11 +289,14 @@ function showHelp(store: Store) {
       shortcuts([
         ['V', 'Seleccionar y editar'],
         ['C', 'Dibujar carretera'],
+        ['U', 'Glorieta'],
+        ['B', 'Áreas: ensanches de cruces, isletas, explanadas'],
         ['A', 'Dibujar río / cauce'],
         ['L', 'Elementos lineales (muro, valla, guardarraíl, tendido…)'],
         ['O', 'Colocar objetos (árboles, señales, farolas…)'],
         ['T', 'Modelar terreno'],
         ['K', 'Calcos (croquis, capturas, ortofoto)'],
+        ['I', 'Fotos de referencia y coincidencia de cámara'],
         ['M', 'Medir'],
         ['P / F', 'Vista en planta / encuadrar selección'],
         ['Ctrl+Z / Ctrl+Y', 'Deshacer / rehacer'],
@@ -333,8 +341,8 @@ function buildStatus(ed: Editor, store: Store) {
       coords.textContent = '';
       return;
     }
-    let s = `X ${fmt(p.x, 2)}  Z ${fmt(p.z, 2)}  cota ${fmt(p.y, 2)} m`;
     const g = store.project.geo;
+    let s = `X ${fmt(p.x, 2)}  Z ${fmt(p.z, 2)}  cota ${fmt(p.y + (g?.h0 ?? 0), 2)} m`;
     if (g) {
       const u = sceneToUtm(g, p.x, p.z);
       s += `  ·  UTM ${g.epsg - 25800}N  ${fmt(u.e, 1)}  ${fmt(u.n, 1)}`;
