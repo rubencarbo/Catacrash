@@ -259,6 +259,23 @@ export interface DamageZone {
   note: string;
 }
 
+/** Posición clave de la trayectoria de un vehículo. */
+export interface MotionKey {
+  id: ID;
+  /** Tiempo en segundos (0 = instante del impacto). */
+  t: number;
+  x: number;
+  z: number;
+  /** Rumbo fijado (grados). null = sigue la tangente de la trayectoria. */
+  heading: number | null;
+  /** Velocidad fijada en este punto (km/h). null = se deduce de tiempos y distancias. */
+  speed: number | null;
+  /** Velocidad justo después de esta clave (km/h): salto de velocidad por el impacto. null = la misma. */
+  speedOut?: number | null;
+  /** El tramo que empieza aquí deja huella de neumáticos (frenada o derrape). */
+  marks: boolean;
+}
+
 export interface VehicleEntity extends EntityBase {
   kind: 'vehicle';
   /** Etiqueta corta que se muestra sobre el vehículo (A, B, V1…). */
@@ -275,6 +292,8 @@ export interface VehicleEntity extends EntityBase {
   damage: DamageZone[];
   /** Fotos del vehículo (ids de imágenes guardadas). */
   photos: ID[];
+  /** Trayectoria animada (vacía = vehículo estático en x, z, rumbo). */
+  motion?: MotionKey[];
 }
 
 export type Entity =
@@ -320,6 +339,12 @@ export interface GeoRef {
   h0?: number;
 }
 
+export interface Timeline {
+  /** Rango de la animación en segundos (0 = impacto). */
+  start: number;
+  end: number;
+}
+
 export interface Project {
   version: 1;
   name: string;
@@ -327,6 +352,7 @@ export interface Project {
   entities: Entity[];
   env: Environment;
   geo: GeoRef | null;
+  timeline?: Timeline;
 }
 
 export interface Selection {

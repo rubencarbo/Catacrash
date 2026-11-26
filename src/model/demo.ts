@@ -1,6 +1,7 @@
 import { emptyProject, LINEAR_DEFS, ROAD_PRESETS } from './defaults';
 import { newId } from './store';
-import type { CtrlPoint, Entity, LinearType, Params, Project } from './types';
+import type { CtrlPoint, Entity, LinearType, MotionKey, Params, Project, VehicleEntity } from './types';
+import { samplePath } from '../scene/spline';
 import { CATALOG } from '../scene/props';
 import { specFromRecord } from '../vehicles/spec';
 import { rng, valueNoise2D } from '../scene/utils';
@@ -178,6 +179,40 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
     id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -10.5, z: 0.5, heading: 52, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
     damage: [{ id: newId('d'), side: 'frontal', from: 0, to: 0.55, depth: 0.35, hFrom: 0.08, hTo: 0.75, note: 'Frontal izquierdo' }],
   });
+
+  // Animación del siniestro: posiciones clave a lo largo de la carretera (0 = impacto)
+  {
+    const S = samplePath(pts(road), () => 0, 0.5, true);
+    const iImp = S.reduce((b, q, i) => (Math.abs(q.z - 3) < Math.abs(S[b].z - 3) ? i : b), 0);
+    const sImp = S[iImp].s;
+    // punto a una distancia s del origen del trazado y desplazamiento lateral o (+ = oeste en sentido sur)
+    const at = (sv: number, o: number) => {
+      let k = 0;
+      while (k < S.length - 2 && S[k + 1].s < sv) k++;
+      const q = S[k];
+      return { x: q.x - q.tz * o, z: q.z + q.tx * o };
+    };
+    const key = (t: number, sv: number, o: number, extra: Partial<MotionKey> = {}): MotionKey => ({ id: newId('k'), t, ...at(sv, o), heading: null, speed: null, marks: false, ...extra });
+    const A = E.find((e) => e.kind === 'vehicle' && e.label === 'A') as VehicleEntity;
+    const B = E.find((e) => e.kind === 'vehicle' && e.label === 'B') as VehicleEntity;
+    const vA = 85 / 3.6;
+    A.motion = [
+      key(-4, sImp - 2.2 - vA * 4, 1.75, { speed: 85 }),
+      key(-2, sImp - 2.2 - vA * 2, 1.6),
+      key(-0.8, sImp - 2.2 - vA * 0.8, 0.4),
+      key(0, sImp - 2.2, -0.6, { speed: 70, speedOut: 22, marks: true }),
+      key(0.7, sImp - 0.2, -3.1, { heading: 200, marks: true }),
+      { id: newId('k'), t: 2.2, x: A.x, z: A.z, heading: A.heading, speed: 0, marks: false },
+    ];
+    B.motion = [
+      key(-4, sImp + 2.2 + 16.7 * 3.1 + 12.5, -1.75, { speed: 60, heading: null }),
+      key(-0.9, sImp + 2.2 + 12.5, -1.75, { speed: 60, marks: true }),
+      key(0, sImp + 2.2, -1.5, { speed: 40, speedOut: 14, marks: true }),
+      key(0.5, sImp + 3.4, 0.6, { heading: 22, marks: true }),
+      { id: newId('k'), t: 1.8, x: B.x, z: B.z, heading: B.heading, speed: 0, marks: false },
+    ];
+    p.timeline = { start: -4, end: 2.5 };
+  }
 
   p.entities = E;
 

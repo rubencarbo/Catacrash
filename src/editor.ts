@@ -6,6 +6,7 @@ import type { Viewport } from './scene/viewport';
 import type { World } from './scene/world';
 import { Handles, type HandleKind } from './tools/handles';
 import { DEG } from './scene/utils';
+import type { Player } from './anim/player';
 
 export interface ToolEvent {
   e: PointerEvent | MouseEvent;
@@ -195,7 +196,7 @@ export class Editor {
       index = index + 1;
       this.store.select({ id, point: index });
       this.store.notify({ type: 'entity', id });
-    } else if (kind === 'point') {
+    } else if (kind === 'point' || kind === 'key') {
       this.store.select({ id, point: index });
     }
     const drag: HandleDrag = { kind, index, id };
@@ -215,6 +216,10 @@ export class Editor {
     if (d.kind === 'point' && 'points' in e) {
       e.points[d.index].x = g.x;
       e.points[d.index].z = g.z;
+    } else if (d.kind === 'key' && e.kind === 'vehicle' && e.motion?.[d.index]) {
+      e.motion[d.index].x = g.x;
+      e.motion[d.index].z = g.z;
+      this.world.invalidateMotion(e.id);
     } else if (d.kind === 'center' && e.kind === 'roundabout') {
       e.cx = g.x + (d.grab?.x ?? 0);
       e.cz = g.z + (d.grab?.y ?? 0);
@@ -254,10 +259,26 @@ export class Editor {
     const obj = this.gizmo.object;
     if (!e || !obj) return;
     if (e.kind === 'vehicle') {
-      e.x = obj.position.x;
-      e.z = obj.position.z;
       const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
-      e.heading = ((-eu.y / DEG) % 360 + 360) % 360;
+      const heading = ((-eu.y / DEG) % 360 + 360) % 360;
+      if (e.motion && e.motion.length) {
+        // Autoclave: se crea o actualiza la posición clave del instante actual
+        const t = Math.round(this.world.time * 100) / 100;
+        let k = e.motion.find((m) => Math.abs(m.t - t) < 0.03);
+        if (!k) {
+          k = { id: newId('k'), t, x: obj.position.x, z: obj.position.z, heading: null, speed: null, marks: false };
+          e.motion.push(k);
+          e.motion.sort((a, b) => a.t - b.t);
+        }
+        k.x = obj.position.x;
+        k.z = obj.position.z;
+        if (this.gizmo.mode === 'rotate' || e.motion.length === 1) k.heading = heading;
+        this.world.invalidateMotion(e.id);
+      } else {
+        e.x = obj.position.x;
+        e.z = obj.position.z;
+        e.heading = heading;
+      }
       this.world.placeVehicle(obj, e);
       this.inspectorSync?.();
       return;
@@ -276,6 +297,8 @@ export class Editor {
   refreshOptions: (() => void) | null = null;
   /** Entra en el modo «coincidir foto» para la foto indicada. */
   photoMatch: ((id: string) => void) | null = null;
+  /** Reproductor de la animación (lo asigna main). */
+  player: Player | null = null;
   /** Abre la herramienta de vehículos para cambiar la ficha del vehículo indicado. */
   vehicleChangeSpec: ((id: string) => void) | null = null;
 

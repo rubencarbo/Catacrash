@@ -3,7 +3,7 @@ import type { Entity, OverlayEntity } from '../model/types';
 import { overlayCorners } from '../scene/overlay';
 import type { World } from '../scene/world';
 
-export type HandleKind = 'point' | 'mid' | 'ovCenter' | 'ovCorner' | 'center' | 'radius';
+export type HandleKind = 'point' | 'mid' | 'ovCenter' | 'ovCorner' | 'center' | 'radius' | 'key';
 
 const geoPoint = new THREE.SphereGeometry(1, 16, 12);
 const geoMid = new THREE.SphereGeometry(0.6, 12, 8);
@@ -77,6 +77,15 @@ export class Handles {
       const y = this.world.surfaceHeight(e.cx, e.cz) + 0.6;
       this.add('center', 0, new THREE.Vector3(e.cx, y, e.cz));
       this.add('radius', 0, new THREE.Vector3(e.cx + e.radius, t.height(e.cx + e.radius, e.cz) + 0.5, e.cz));
+    } else if (e.kind === 'vehicle' && e.motion && e.motion.length) {
+      const m = this.world.motionOf(e);
+      const keys = [...e.motion].sort((a, b) => a.t - b.t);
+      keys.forEach((k) => {
+        const i = e.motion!.indexOf(k);
+        this.add('key', i, new THREE.Vector3(k.x, this.world.surfaceHeight(k.x, k.z) + 0.35, k.z), i === selectedPoint);
+      });
+      const path = m ? m.path(0.5) : [];
+      if (path.length > 1) this.polyline(path.map((p) => new THREE.Vector3(p.x, this.world.surfaceHeight(p.x, p.z) + 0.12, p.z)));
     } else if (e.kind === 'photo') {
       this.add('center', 0, new THREE.Vector3(e.x, t.height(e.x, e.z) + 0.3, e.z));
     } else if (e.kind === 'overlay') {

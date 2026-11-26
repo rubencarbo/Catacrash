@@ -3,6 +3,8 @@ import type { Change, Store } from '../model/store';
 import type { AreaEntity, Entity, LinearEntity, OverlayEntity, PropEntity, RiverEntity, RoadEntity, RoundaboutEntity, VehicleEntity } from '../model/types';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { buildVehicle } from './vehicle3d';
+import { buildMotion, type Motion } from '../anim/motion';
+import { buildSkids, type Skids } from '../anim/skids';
 import { areaGeometry, areaShaper, buildArea, type AreaGeom } from './area';
 import { roadFootprint, type Footprint } from './footprint';
 import { buildPhotoMarker } from './photo';
@@ -111,6 +113,12 @@ export class World {
   }
 
   private clearObject(id: string) {
+    const sk = this.skids.get(id);
+    if (sk) {
+      this.root.remove(sk.group);
+      sk.group.traverse((c) => (c as THREE.Mesh).geometry?.dispose());
+      this.skids.delete(id);
+    }
     const o = this.objects.get(id);
     if (o) {
       this.root.remove(o);
@@ -228,6 +236,7 @@ export class World {
         this.addObject(e, buildPhotoMarker(e, this.terrain.height(e.x, e.z)));
         break;
       case 'vehicle':
+        this.invalidateMotion(e.id);
         this.addObject(e, this.makeVehicle(e));
         break;
       default:
@@ -252,10 +261,30 @@ export class World {
     obj.rotation.set(0, (-e.rot * Math.PI) / 180, 0);
   }
 
+  /** Instante actual de la animación (0 = impacto). */
+  time = 0;
+  private motions = new Map<string, Motion | null>();
+  private skids = new Map<string, Skids>();
+
+  motionOf(e: VehicleEntity): Motion | null {
+    if (!this.motions.has(e.id)) this.motions.set(e.id, (e.motion?.length ?? 0) > 0 ? buildMotion(e) : null);
+    return this.motions.get(e.id)!;
+  }
+  invalidateMotion(id: string) {
+    this.motions.delete(id);
+  }
+
   private makeVehicle(e: VehicleEntity) {
     const wrap = new THREE.Group();
     wrap.rotation.order = 'YXZ';
-    wrap.add(buildVehicle(e));
+    const damaged = buildVehicle(e);
+    damaged.userData.state = 'damaged';
+    wrap.add(damaged);
+    if (e.damage.length && (e.motion?.length ?? 0) > 1) {
+      const intact = buildVehicle({ ...e, damage: [] });
+      intact.userData.state = 'intact';
+      wrap.add(intact);
+    }
     const div = document.createElement('div');
     div.className = 'label vehicle';
     div.textContent = e.label || e.name;
@@ -264,22 +293,42 @@ export class World {
     lbl.position.set(0, e.spec.H + 0.9, 0);
     lbl.userData.isLabel = true;
     wrap.add(lbl);
+    // Huellas de neumáticos de los tramos marcados
+    const m = this.motionOf(e);
+    const old = this.skids.get(e.id);
+    if (old) {
+      this.root.remove(old.group);
+      this.skids.delete(e.id);
+    }
+    if (m) {
+      const sk = buildSkids(e, m, (x, z) => this.surfaceHeight(x, z));
+      if (sk) {
+        sk.group.userData.skidOf = e.id;
+        this.root.add(sk.group);
+        this.skids.set(e.id, sk);
+        sk.update(this.time);
+      }
+    }
     this.placeVehicle(wrap, e);
     return wrap;
+  }
+
+  /** Pose del vehículo en el instante actual (trayectoria o posición estática). */
+  vehiclePose(e: VehicleEntity) {
+    const m = this.motionOf(e);
+    if (m) return m.pose(this.time);
+    return { x: e.x, z: e.z, heading: e.heading, speed: 0, seg: 0, marks: false };
   }
 
   /** Coloca el vehículo sobre el firme, inclinado según la pendiente bajo sus ruedas. */
   placeVehicle(obj: THREE.Object3D, e: VehicleEntity) {
     const sp = e.spec;
-    const a = (-e.heading * Math.PI) / 180;
-    const hd = (e.heading * Math.PI) / 180;
+    const pose = this.vehiclePose(e);
+    const a = (-pose.heading * Math.PI) / 180;
+    const hd = (pose.heading * Math.PI) / 180;
     const fwd = new THREE.Vector3(Math.sin(hd), 0, -Math.cos(hd)); // dirección del frontal
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
-    const at = (f: number, r: number) => {
-      const x = e.x + fwd.x * f + right.x * r;
-      const z = e.z + fwd.z * f + right.z * r;
-      return this.surfaceHeight(x, z);
-    };
+    const at = (f: number, r: number) => this.surfaceHeight(pose.x + fwd.x * f + right.x * r, pose.z + fwd.z * f + right.z * r);
     const hf = Math.max(0.3, sp.L / 2 - sp.volD);
     const hr = Math.max(0.3, sp.L / 2 - sp.volT);
     const hw = Math.max(0.15, (sp.viaD || sp.W * 0.8) / 2);
@@ -288,11 +337,30 @@ export class World {
     const yL = at((hf - hr) / 2, -hw);
     const yRt = at((hf - hr) / 2, hw);
     const y0 = (yF + yR + yL + yRt) / 4;
-    obj.position.set(e.x, y0, e.z);
+    obj.position.set(pose.x, y0, pose.z);
     const pitch = sp.tipo === 'peaton' ? 0 : Math.atan2(yF - yR, hf + hr);
     const roll = sp.tipo === 'peaton' ? 0 : Math.atan2(yRt - yL, 2 * hw);
     obj.rotation.set(pitch, a, roll, 'YXZ');
+    // Daños visibles a partir del impacto (los vehículos estáticos se muestran ya dañados)
+    const showDamaged = !(e.motion && e.motion.length > 1) || this.time >= 0;
+    for (const c of obj.children) {
+      if (c.userData.state === 'intact') c.visible = !showDamaged;
+      if (c.userData.state === 'damaged') c.visible = showDamaged || !obj.children.some((x) => x.userData.state === 'intact');
+    }
   }
+
+  /** Mueve los vehículos animados al instante t. */
+  setTime(t: number) {
+    this.time = t;
+    for (const e of this.store.project.entities) {
+      if (e.kind !== 'vehicle') continue;
+      const obj = this.objects.get(e.id);
+      if (obj && (e.motion?.length ?? 0) > 0) this.placeVehicle(obj, e);
+      this.skids.get(e.id)?.update(t);
+    }
+    this.onTime?.();
+  }
+  onTime: (() => void) | null = null;
 
   private addObject(e: Entity, o: THREE.Object3D) {
     o.userData.entityId = e.id;
@@ -307,15 +375,26 @@ export class World {
     updateOverlays(list, this.store.assets);
   }
 
-  /** Cota de la superficie transitable (calzada si la hay, si no terreno). */
+  /** Cota de la superficie transitable (calzada, glorieta o área si la hay; si no, terreno). */
   surfaceHeight(x: number, z: number) {
-    const rc = new THREE.Raycaster(new THREE.Vector3(x, 5000, z), new THREE.Vector3(0, -1, 0), 0, 10000);
-    const roads = this.store.project.entities
-      .filter((e) => e.kind === 'road' || e.kind === 'roundabout' || e.kind === 'area')
+    // Calzadas: cálculo analítico con sus huellas (rápido, apto para animación)
+    for (const f of this.footprints) {
+      if (f.inside(x, z)) {
+        const e = this.store.get(f.id);
+        const lift = e && e.kind === 'road' ? (e.priority ?? 1) * 0.004 : 0.012;
+        return f.height(x, z) + lift;
+      }
+    }
+    const areas = this.store.project.entities
+      .filter((e) => e.kind === 'area')
       .map((e) => this.objects.get(e.id))
       .filter((o): o is THREE.Object3D => !!o);
-    const hit = rc.intersectObjects(roads, true)[0];
-    return hit ? hit.point.y : this.terrain.height(x, z);
+    if (areas.length) {
+      const rc = new THREE.Raycaster(new THREE.Vector3(x, 5000, z), new THREE.Vector3(0, -1, 0), 0, 10000);
+      const hit = rc.intersectObjects(areas, true)[0];
+      if (hit) return hit.point.y;
+    }
+    return this.terrain.height(x, z);
   }
 
   /** Objetos seleccionables con un clic. */

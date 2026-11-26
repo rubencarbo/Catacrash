@@ -6,6 +6,7 @@ import { specTitle } from '../tools/vehicleTool';
 import { saveToLibrary } from '../vehicles/catalog';
 import { respec, TYPICAL } from '../vehicles/spec';
 import { fmt, h, toast } from './dom';
+import { motionWarnings } from '../anim/motion';
 import { ICON } from './icons';
 
 type NumberField = (label: string, value: number, set: (v: number) => void, unit?: string, step?: number, min?: number, max?: number) => HTMLElement;
@@ -183,6 +184,7 @@ export function renderVehicleInspector(el: HTMLElement, ed: Editor, e: VehicleEn
     ),
   );
 
+  renderMotion(el, ed, e);
   if (sp.tipo !== 'peaton') renderDamage(el, ed, e, numberField);
   renderPhotos(el, ed, e);
 }
@@ -332,4 +334,150 @@ function lightbox(url: string, title: string) {
   const close = () => ov.remove();
   const ov: HTMLDivElement = h('div', { class: 'help-overlay', onclick: close }, h('figure', { class: 'lightbox' }, h('img', { src: url, alt: title }), h('figcaption', {}, title)));
   document.body.append(ov);
+}
+
+// ---------------- Trayectoria ----------------
+
+const fmtT = (t: number) => `${t < 0 ? '−' : t > 0 ? '+' : ''}${fmt(Math.abs(t), 2)} s`;
+
+function renderMotion(el: HTMLElement, ed: Editor, e: VehicleEntity) {
+  const change = (fn: () => void) => {
+    ed.store.edit(fn, { type: 'entity', id: e.id });
+    ed.world.invalidateMotion(e.id);
+  };
+  el.append(h('div', { class: 'cat-title' }, 'Trayectoria y velocidades'));
+  const keys = e.motion ?? [];
+  if (!keys.length) {
+    el.append(
+      h(
+        'p',
+        { class: 'muted' },
+        'Vehículo estático. Para animarlo crea su trayectoria: se guarda su posición actual en el instante marcado en la línea de tiempo. Después mueve el tiempo y arrastra el vehículo; cada movimiento crea o actualiza una posición clave.',
+      ),
+      h(
+        'button',
+        {
+          class: 'btn primary',
+          onclick: () =>
+            change(() => {
+              e.motion = [{ id: newId('k'), t: Math.round(ed.world.time * 100) / 100, x: e.x, z: e.z, heading: e.heading, speed: null, marks: false }];
+            }),
+        },
+        'Animar este vehículo',
+      ),
+    );
+    return;
+  }
+  const m = ed.world.motionOf(e);
+  const sorted = [...keys].sort((a, b) => a.t - b.t);
+  const sel = ed.store.selection?.id === e.id ? ed.store.selection.point : undefined;
+  const table = h('div', { class: 'keys-table' });
+  table.append(h('div', { class: 'kh' }, h('span', {}, 'Tiempo'), h('span', {}, 'Velocidad'), h('span', {}, 'Rumbo'), h('span', { title: 'Deja huella de neumáticos hasta la siguiente clave' }, 'Huella'), h('span', {})));
+  sorted.forEach((k, i) => {
+    const idx = keys.indexOf(k);
+    const ks = m?.keySpeeds[i];
+    const kmh = ks ? Math.round(ks.v * 3.6) : 0;
+    table.append(
+      h(
+        'div',
+        { class: 'kr' + (idx === sel ? ' sel' : '') },
+        h('input', {
+          type: 'number',
+          step: 0.05,
+          value: k.t,
+          title: 'Tiempo de esta posición (s, 0 = impacto)',
+          onchange: (ev: Event) => change(() => (k.t = Number((ev.target as HTMLInputElement).value))),
+          onfocus: () => {
+            ed.player?.pause();
+            ed.player?.setTime(k.t);
+          },
+        }),
+        h('input', {
+          type: 'number',
+          step: 1,
+          min: 0,
+          value: k.speed ?? '',
+          placeholder: String(kmh),
+          class: k.speed === null ? 'derived' : '',
+          title: k.speed === null ? `Deducida: ${kmh} km/h. Escribe un valor para fijarla.` : 'Velocidad fijada (km/h). Bórrala para que se deduzca.',
+          onchange: (ev: Event) => {
+            const v = (ev.target as HTMLInputElement).value;
+            change(() => (k.speed = v === '' ? null : Math.max(0, Number(v))));
+          },
+        }),
+        k.t === 0 && i < sorted.length - 1
+          ? h('input', {
+              type: 'number',
+              step: 1,
+              min: 0,
+              value: k.speedOut ?? '',
+              placeholder: 'salida',
+              class: 'speed-out',
+              title: 'Velocidad justo después del impacto (km/h). El salto de velocidad del choque no cuenta como frenada.',
+              onchange: (ev: Event) => {
+                const v = (ev.target as HTMLInputElement).value;
+                change(() => (k.speedOut = v === '' ? null : Math.max(0, Number(v))));
+              },
+            })
+          : null,
+        h('input', {
+          type: 'number',
+          step: 1,
+          value: k.heading === null ? '' : Math.round(k.heading),
+          placeholder: 'auto',
+          title: 'Rumbo fijado (°). Vacío = sigue la trayectoria. Úsalo para trompos o derrapes.',
+          onchange: (ev: Event) => {
+            const v = (ev.target as HTMLInputElement).value;
+            change(() => (k.heading = v === '' ? null : ((Number(v) % 360) + 360) % 360));
+          },
+        }),
+        i < sorted.length - 1
+          ? h('input', { type: 'checkbox', checked: k.marks, title: 'Huella de frenada/derrape en este tramo', onchange: (ev: Event) => change(() => (k.marks = (ev.target as HTMLInputElement).checked)) })
+          : h('span', {}),
+        h('button', { class: 'icon-btn small danger', title: 'Quitar esta posición', html: ICON.trash, onclick: () => change(() => keys.splice(idx, 1)) }),
+      ),
+    );
+  });
+  el.append(
+    table,
+    h(
+      'div',
+      { class: 'row wrap' },
+      h(
+        'button',
+        {
+          class: 'btn',
+          onclick: () => {
+            const p = ed.world.vehiclePose(e);
+            const t = Math.round(ed.world.time * 100) / 100;
+            if (keys.some((k) => Math.abs(k.t - t) < 0.03)) return toast(`Ya hay una posición en ${fmtT(t)}. Mueve el tiempo o arrastra el vehículo.`);
+            change(() => keys.push({ id: newId('k'), t, x: p.x, z: p.z, heading: null, speed: null, marks: false }));
+          },
+        },
+        `Añadir posición en ${fmtT(ed.world.time)}`,
+      ),
+      h('button', { class: 'btn', onclick: () => change(() => (e.motion = [])) }, 'Quitar trayectoria'),
+    ),
+  );
+  if (m && m.segments.length) {
+    const mu = ed.store.project.env.wet ? 0.5 : 0.8;
+    const at0 = m.pose(-0.001);
+    const k0 = m.keys.findIndex((k) => k.t === 0);
+    const out0 = k0 >= 0 ? m.keySpeeds[k0].vOut : null;
+    const v0 = m.keySpeeds[0].v;
+    const info: string[] = [];
+    info.push(`Velocidad en el impacto: ${Math.round(at0.speed * 3.6)} km/h${out0 !== null && Math.abs(out0 - at0.speed) > 0.3 ? `; tras el impacto ${Math.round(out0 * 3.6)} km/h (Δv ≈ ${Math.round(Math.abs(at0.speed - out0) * 3.6)} km/h)` : ''}.`);
+    info.push(`Velocidad inicial: ${Math.round(v0 * 3.6)} km/h; con firme ${ed.store.project.env.wet ? 'mojado' : 'seco'} (μ ≈ ${String(mu).replace('.', ',')}) necesitaría ${fmt((v0 * v0) / (2 * mu * 9.81), 1)} m para detenerse frenando a fondo.`);
+    const total = m.segments.reduce((s, g) => s + g.length, 0);
+    info.push(`Recorrido total: ${fmt(total, 1)} m en ${fmt(m.segments[m.segments.length - 1].t1 - m.segments[0].t0, 2)} s.`);
+    el.append(h('div', { class: 'motion-info' }, ...info.map((t) => h('p', {}, t))));
+    for (const w of motionWarnings(m, ed.store.project.env.wet)) el.append(h('p', { class: 'warn' }, `⚠ ${w}`));
+  }
+  el.append(
+    h(
+      'p',
+      { class: 'muted' },
+      'Las velocidades en gris se deducen de tiempos y distancias; escribe un valor para fijarlas. Para modificar una posición, mueve el tiempo hasta ella y arrastra el vehículo, o arrastra su punto naranja sobre la trayectoria.',
+    ),
+  );
 }

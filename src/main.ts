@@ -20,6 +20,8 @@ import { clear, confirmDialog, fmt, h, toast } from './ui/dom';
 import { ICON } from './ui/icons';
 import { Inspector } from './ui/inspector';
 import { Outliner } from './ui/outliner';
+import { Player } from './anim/player';
+import { TimelineBar } from './ui/timeline';
 
 async function boot() {
   const saved = await idbGet<{ project: Project; assets: Record<string, string> }>('project');
@@ -45,6 +47,16 @@ async function boot() {
   ed.register(photoTool(ed));
   ed.register(measureTool(ed));
 
+  const player = new Player(store, world, vp);
+  ed.player = player;
+  new TimelineBar(vpEl, ed, player);
+  world.onRebuilt = (() => {
+    const prev = world.onRebuilt;
+    return () => {
+      world.setTime(player.time);
+      prev?.();
+    };
+  })();
   new Outliner(document.getElementById('outliner')!, ed);
   new Inspector(document.getElementById('inspector')!, ed);
 
@@ -55,7 +67,7 @@ async function boot() {
   buildCompass(vp, vpEl);
 
   document.getElementById('loading')?.remove();
-  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE };
+  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player };
 }
 
 function buildToolbar(ed: Editor) {
