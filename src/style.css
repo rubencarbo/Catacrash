@@ -37,7 +37,7 @@ body {
     'top top top top'
     'tools opts view side'
     'status status status status';
-  height: 100vh;
+  height: 100%;
 }
 
 #topbar {
