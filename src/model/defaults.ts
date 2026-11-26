@@ -200,7 +200,7 @@ export const TERRAIN_SEGS = 300;
 export function emptyProject(): Project {
   const n = TERRAIN_SEGS + 1;
   return {
-    version: 2,
+    version: 3,
     name: 'Escenario sin título',
     terrain: { size: TERRAIN_SIZE, segs: TERRAIN_SEGS, base: new Float32Array(n * n) },
     entities: [],

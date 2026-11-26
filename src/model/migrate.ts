@@ -1,7 +1,7 @@
 import type { CtrlPoint, MotionKey, Project, VehicleEntity } from './types';
 
 /** Versión actual del formato de proyecto. */
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
 
 /** Nombre del escenario de ejemplo (para reconocer copias antiguas guardadas en el navegador). */
 export const DEMO_NAME = 'Ejemplo: colisión frontal en curva';
