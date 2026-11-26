@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import type { Entity, OverlayEntity } from '../model/types';
 import { overlayCorners } from '../scene/overlay';
 import type { World } from '../scene/world';
+import { Path } from '../physics/path';
 
-export type HandleKind = 'point' | 'mid' | 'ovCenter' | 'ovCorner' | 'center' | 'radius' | 'key';
+export type HandleKind = 'point' | 'mid' | 'ovCenter' | 'ovCorner' | 'center' | 'radius' | 'route' | 'routeMid' | 'impact';
 
 const geoPoint = new THREE.SphereGeometry(1, 16, 12);
 const geoMid = new THREE.SphereGeometry(0.6, 12, 8);
@@ -40,7 +41,8 @@ export class Handles {
   }
 
   private add(kind: HandleKind, index: number, p: THREE.Vector3, selected = false) {
-    const m = new THREE.Mesh(kind === 'mid' ? geoMid : geoPoint, kind === 'mid' ? matMid : selected ? matSel : matPoint);
+    const mid = kind === 'mid' || kind === 'routeMid';
+    const m = new THREE.Mesh(mid ? geoMid : geoPoint, mid ? matMid : selected ? matSel : matPoint);
     m.position.copy(p);
     m.renderOrder = 10;
     m.userData.handle = { kind, index };
@@ -77,15 +79,25 @@ export class Handles {
       const y = this.world.surfaceHeight(e.cx, e.cz) + 0.6;
       this.add('center', 0, new THREE.Vector3(e.cx, y, e.cz));
       this.add('radius', 0, new THREE.Vector3(e.cx + e.radius, t.height(e.cx + e.radius, e.cz) + 0.5, e.cz));
-    } else if (e.kind === 'vehicle' && e.motion && e.motion.length) {
-      const m = this.world.motionOf(e);
-      const keys = [...e.motion].sort((a, b) => a.t - b.t);
-      keys.forEach((k) => {
-        const i = e.motion!.indexOf(k);
-        this.add('key', i, new THREE.Vector3(k.x, this.world.surfaceHeight(k.x, k.z) + 0.35, k.z), i === selectedPoint);
-      });
-      const path = m ? m.path(0.5) : [];
-      if (path.length > 1) this.polyline(path.map((p) => new THREE.Vector3(p.x, this.world.surfaceHeight(p.x, p.z) + 0.12, p.z)));
+    } else if (e.kind === 'vehicle' && e.drive && e.drive.path.length > 1) {
+      // ruta prevista del conductor
+      const P = e.drive.path;
+      const pts = P.map((p) => new THREE.Vector3(p.x, this.world.surfaceHeight(p.x, p.z) + 0.35, p.z));
+      pts.forEach((p, i) => this.add('route', i, p, i === selectedPoint));
+      for (let i = 0; i < pts.length - 1; i++) {
+        const m = pts[i].clone().lerp(pts[i + 1], 0.5);
+        this.add('routeMid', i, m);
+      }
+      const dense = new Path(P);
+      const line: THREE.Vector3[] = [];
+      for (let s = 0; s <= dense.length; s += 1) {
+        const [x, z] = dense.point(s);
+        line.push(new THREE.Vector3(x, this.world.surfaceHeight(x, z) + 0.12, z));
+      }
+      if (line.length > 1) this.polyline(line);
+      // punto de colisión (rojo)
+      const ip = this.world.impactPoint();
+      if (ip) this.add('impact', 0, new THREE.Vector3(ip.x, this.world.surfaceHeight(ip.x, ip.z) + 0.6, ip.z), true);
     } else if (e.kind === 'photo') {
       this.add('center', 0, new THREE.Vector3(e.x, t.height(e.x, e.z) + 0.3, e.z));
     } else if (e.kind === 'overlay') {

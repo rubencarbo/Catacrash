@@ -1036,3 +1036,60 @@ textarea {
   font-size: 12px;
   cursor: pointer;
 }
+
+.tl-hit {
+  position: absolute;
+  top: 1px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: #ff7043;
+  box-shadow: 0 0 0 2px #15171a;
+}
+.tl-contact {
+  background: #3a1d14;
+  border: 1px solid #8a3d1e;
+  color: #ffccbc;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ev-row {
+  display: grid;
+  grid-template-columns: 62px 1.3fr 70px 24px;
+  gap: 4px;
+  align-items: center;
+  margin: 3px 0;
+}
+.ev-row input,
+.ev-row select {
+  padding: 4px;
+  font-size: 12px;
+}
+.results-table {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 8px;
+}
+.results-table div {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.results-table span {
+  color: var(--muted);
+}
+.results-table strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ok {
+  color: #81c784;
+  margin: 6px 0;
+}

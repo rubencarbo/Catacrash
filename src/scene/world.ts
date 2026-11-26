@@ -3,8 +3,9 @@ import type { Change, Store } from '../model/store';
 import type { AreaEntity, Entity, LinearEntity, OverlayEntity, PropEntity, RiverEntity, RoadEntity, RoundaboutEntity, VehicleEntity } from '../model/types';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { buildVehicle } from './vehicle3d';
-import { buildMotion, type Motion } from '../anim/motion';
 import { buildSkids, type Skids } from '../anim/skids';
+import { frameAt, simulate, type Frame, type Obstacle, type SimResult, type SurfaceKind } from '../physics/sim';
+import { linearSamples } from './linear';
 import { areaGeometry, areaShaper, buildArea, type AreaGeom } from './area';
 import { roadFootprint, type Footprint } from './footprint';
 import { buildPhotoMarker } from './photo';
@@ -34,6 +35,7 @@ export class World {
   samples = new Map<string, PathSample[]>();
   private corridors: Shaper[] = [];
   private pendingFull = false;
+  private pendingSim = false;
   private pendingIds = new Set<string>();
   private rafScheduled = false;
   onRebuilt: (() => void) | null = null;
@@ -72,12 +74,16 @@ export class World {
       this.pendingFull = true;
     } else if (c.type === 'env') {
       this.applyEnv();
-      return;
+      // el firme mojado cambia la adherencia; el punto de colisión o el rango de tiempo, la simulación
+      this.pendingSim = true;
     } else if (c.type === 'entity') {
       const e = this.store.get(c.id);
       if (!e) this.pendingFull = true;
       else if (e.kind === 'road' || e.kind === 'river' || e.kind === 'roundabout' || e.kind === 'area') this.pendingFull = true;
-      else this.pendingIds.add(c.id);
+      else {
+        this.pendingIds.add(c.id);
+        if (e.kind === 'vehicle' || e.kind === 'linear' || e.kind === 'prop') this.pendingSim = true;
+      }
     }
     this.schedule();
   }
@@ -88,7 +94,11 @@ export class World {
     requestAnimationFrame(() => {
       this.rafScheduled = false;
       if (this.pendingFull) this.rebuildAll();
-      else for (const id of this.pendingIds) this.rebuildEntity(id);
+      else {
+        for (const id of this.pendingIds) this.rebuildEntity(id);
+        if (this.pendingSim) this.runSim();
+      }
+      this.pendingSim = false;
       this.pendingFull = false;
       this.pendingIds.clear();
       this.onRebuilt?.();
@@ -118,6 +128,11 @@ export class World {
       this.root.remove(sk.group);
       sk.group.traverse((c) => (c as THREE.Mesh).geometry?.dispose());
       this.skids.delete(id);
+    }
+    const gh = this.ghosts.get(id);
+    if (gh) {
+      this.root.remove(gh);
+      this.ghosts.delete(id);
     }
     const o = this.objects.get(id);
     if (o) {
@@ -216,6 +231,7 @@ export class World {
     }
     this.refreshOverlays();
     this.applyEnv();
+    this.runSim();
   }
 
   rebuildEntity(id: string) {
@@ -236,7 +252,6 @@ export class World {
         this.addObject(e, buildPhotoMarker(e, this.terrain.height(e.x, e.z)));
         break;
       case 'vehicle':
-        this.invalidateMotion(e.id);
         this.addObject(e, this.makeVehicle(e));
         break;
       default:
@@ -263,28 +278,180 @@ export class World {
 
   /** Instante actual de la animación (0 = impacto). */
   time = 0;
-  private motions = new Map<string, Motion | null>();
+  /** Resultado de la última simulación física. */
+  sim: SimResult | null = null;
   private skids = new Map<string, Skids>();
+  private ghosts = new Map<string, THREE.Object3D>();
+  private impactMarker: THREE.Object3D | null = null;
+  /** Se llama tras cada simulación (para refrescar paneles). */
+  onSim: (() => void) | null = null;
 
-  motionOf(e: VehicleEntity): Motion | null {
-    if (!this.motions.has(e.id)) this.motions.set(e.id, (e.motion?.length ?? 0) > 0 ? buildMotion(e) : null);
-    return this.motions.get(e.id)!;
+  impactPoint() {
+    return this.store.project.impact ?? null;
   }
-  invalidateMotion(id: string) {
-    this.motions.delete(id);
+
+  /** Vehículo con conducción simulada. */
+  isDriven(e: VehicleEntity) {
+    return !!e.drive && e.drive.path.length > 1;
+  }
+
+  /** Obstáculos fijos para la simulación: muros, biondas, barreras, vallas, árboles, postes, edificios… */
+  obstacles(): Obstacle[] {
+    const out: Obstacle[] = [];
+    const num = (v: unknown, d: number) => (typeof v === 'number' && isFinite(v) ? v : d);
+    for (const e of this.store.project.entities) {
+      if (e.hidden) continue;
+      if (e.kind === 'linear') {
+        const P = e.params;
+        let hw = 0;
+        let k = 0;
+        switch (e.type) {
+          case 'muro':
+            hw = num(P.grosor, 0.4) / 2;
+            k = Infinity;
+            break;
+          case 'barrera_hormigon':
+            hw = 0.3;
+            k = Infinity;
+            break;
+          case 'guardarrail':
+            hw = 0.15;
+            k = 4e5;
+            break;
+          case 'valla':
+            hw = 0.06;
+            k = P.tipo === 'madera' ? 1.2e5 : 6e4;
+            break;
+          case 'seto':
+            hw = num(P.ancho, 0.8) / 2;
+            k = 3e4;
+            break;
+          case 'tendido': {
+            for (const [i, pt] of e.points.entries()) out.push({ id: `${e.id}:${i}`, name: 'Poste del tendido', cx: pt.x, cz: pt.z, hl: 0.13, hw: 0.13, ang: 0, k: P.poste === 'madera' ? 8e5 : 2e6, kind: 'poste' });
+            continue;
+          }
+          default:
+            continue;
+        }
+        const S = linearSamples(e, this.terrain, 2);
+        for (let i = 0; i < S.length - 1; i++) {
+          const a = S[i];
+          const b = S[i + 1];
+          const len = Math.hypot(b.x - a.x, b.z - a.z);
+          if (len < 0.05) continue;
+          out.push({ id: `${e.id}:${i}`, name: e.name, cx: (a.x + b.x) / 2, cz: (a.z + b.z) / 2, hl: len / 2 + 0.02, hw, ang: Math.atan2(b.z - a.z, b.x - a.x), k, kind: e.type });
+        }
+      } else if (e.kind === 'prop') {
+        const P = { ...(CATALOG[e.type]?.defaults ?? {}), ...e.params };
+        const ang = (e.rot * Math.PI) / 180;
+        const box = (hl: number, hw: number, k: number, kind: string) => out.push({ id: e.id, name: e.name, cx: e.x, cz: e.z, hl, hw, ang, k, kind });
+        switch (e.type) {
+          case 'arbol': {
+            if (P.especie === 'arbusto' || num(P.altura, 8) < 1.5) break;
+            const d = num(P.tronco, 0.35);
+            box(d / 2, d / 2, d > 0.25 ? 3e6 : 6e5, 'arbol');
+            break;
+          }
+          case 'farola':
+          case 'poste':
+          case 'semaforo':
+            box(0.1, 0.1, 1.2e6, 'poste');
+            break;
+          case 'senal':
+          case 'cartel':
+            box(0.05, 0.05, 8e4, 'poste');
+            break;
+          case 'bolardo':
+            box(num(P.diametro, 0.12) / 2 + 0.02, num(P.diametro, 0.12) / 2 + 0.02, P.tipo === 'flexible' ? 2e4 : 1.5e6, 'poste');
+            break;
+          case 'edificio':
+          case 'caseta':
+            box(num(P.ancho, 6) / 2, num(P.fondo, 6) / 2, Infinity, 'muro');
+            break;
+          case 'contenedor':
+            box(0.9, 0.55, 3e5, 'contenedor');
+            break;
+          case 'jardinera':
+            box(num(P.largo, 1.5) / 2, 0.4, 1e6, 'muro');
+            break;
+          case 'marquesina':
+            box(num(P.largo, 4) / 2, 0.9, 2e5, 'contenedor');
+            break;
+          case 'roca':
+            box(num(P.tamano, 1.2) / 2, num(P.tamano, 1.2) / 2, Infinity, 'muro');
+            break;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Tipo de firme bajo un punto (para la adherencia de cada rueda). */
+  surfaceKind(x: number, z: number): SurfaceKind {
+    for (const f of this.footprints) if (f.inside(x, z)) return 'asfalto';
+    for (const e of this.store.project.entities) {
+      if (e.kind !== 'area' || e.points.length < 3) continue;
+      let inside = false;
+      const R = e.points;
+      for (let i = 0, j = R.length - 1; i < R.length; j = i++) {
+        if (R[i].z > z !== R[j].z > z && x < ((R[j].x - R[i].x) * (z - R[i].z)) / (R[j].z - R[i].z) + R[i].x) inside = !inside;
+      }
+      if (!inside) continue;
+      return e.material === 'hierba' ? 'hierba' : e.material === 'tierra' || e.material === 'grava' ? 'tierra' : 'asfalto';
+    }
+    return 'hierba';
+  }
+
+  /** Ejecuta la simulación física de todos los vehículos y actualiza sus mallas. */
+  runSim() {
+    const p = this.store.project;
+    const vehicles = p.entities.filter((e): e is VehicleEntity => e.kind === 'vehicle');
+    const range = p.timeline ?? { start: -4, end: 4 };
+    if (!vehicles.some((v) => this.isDriven(v))) {
+      this.sim = null;
+    } else {
+      this.sim = simulate({
+        vehicles,
+        start: range.start,
+        end: range.end,
+        impact: p.impact ?? null,
+        wet: p.env.wet,
+        surfaceH: (x, z) => this.surfaceHeight(x, z),
+        surfaceKind: (x, z) => this.surfaceKind(x, z),
+        obstacles: this.obstacles(),
+      });
+    }
+    for (const v of vehicles) {
+      this.clearObject(v.id);
+      this.addObject(v, this.makeVehicle(v));
+    }
+    this.updateImpactMarker();
+    this.setTime(this.time);
+    this.onSim?.();
+  }
+
+  /** Zonas dañadas a mostrar: las indicadas a mano más las calculadas por la simulación. */
+  damageOf(e: VehicleEntity) {
+    return [...e.damage, ...(this.sim?.vehicles.get(e.id)?.autoDamage ?? [])];
   }
 
   private makeVehicle(e: VehicleEntity) {
     const wrap = new THREE.Group();
     wrap.rotation.order = 'YXZ';
-    const damaged = buildVehicle(e);
+    const dmg = this.damageOf(e);
+    const sv = this.sim?.vehicles.get(e.id);
+    const damaged = buildVehicle({ ...e, damage: dmg });
     damaged.userData.state = 'damaged';
     wrap.add(damaged);
-    if (e.damage.length && (e.motion?.length ?? 0) > 1) {
+    if (dmg.length && sv && sv.firstContact !== null) {
       const intact = buildVehicle({ ...e, damage: [] });
       intact.userData.state = 'intact';
       wrap.add(intact);
     }
+    for (const g of wrap.children)
+      g.traverse((c) => {
+        if (c.userData.wheel) c.userData.baseRotY = c.rotation.y;
+      });
     const div = document.createElement('div');
     div.className = 'label vehicle';
     div.textContent = e.label || e.name;
@@ -293,15 +460,14 @@ export class World {
     lbl.position.set(0, e.spec.H + 0.9, 0);
     lbl.userData.isLabel = true;
     wrap.add(lbl);
-    // Huellas de neumáticos de los tramos marcados
-    const m = this.motionOf(e);
+    // Huellas reales de la simulación
     const old = this.skids.get(e.id);
     if (old) {
       this.root.remove(old.group);
       this.skids.delete(e.id);
     }
-    if (m) {
-      const sk = buildSkids(e, m, (x, z) => this.surfaceHeight(x, z));
+    if (sv) {
+      const sk = buildSkids(sv.marks, (x, z) => this.surfaceHeight(x, z));
       if (sk) {
         sk.group.userData.skidOf = e.id;
         this.root.add(sk.group);
@@ -309,24 +475,85 @@ export class World {
         sk.update(this.time);
       }
     }
+    // Posición final observada (croquis), para comparar con el reposo simulado
+    const oldG = this.ghosts.get(e.id);
+    if (oldG) this.root.remove(oldG);
+    this.ghosts.delete(e.id);
+    if (this.isDriven(e) && e.drive!.showFinal) {
+      const gh = this.makeGhost(e);
+      gh.visible = this.store.selection?.id === e.id;
+      this.root.add(gh);
+      this.ghosts.set(e.id, gh);
+    }
     this.placeVehicle(wrap, e);
     return wrap;
   }
 
-  /** Pose del vehículo en el instante actual (trayectoria o posición estática). */
-  vehiclePose(e: VehicleEntity) {
-    const m = this.motionOf(e);
-    if (m) return m.pose(this.time);
-    return { x: e.x, z: e.z, heading: e.heading, speed: 0, seg: 0, marks: false };
+  private makeGhost(e: VehicleEntity) {
+    const sp = e.spec;
+    const g = new THREE.Group();
+    const box = new THREE.BoxGeometry(sp.W, sp.H * 0.9, sp.L);
+    box.translate(0, (sp.H * 0.9) / 2, 0);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineDashedMaterial({ color: e.color, dashSize: 0.25, gapSize: 0.15, depthTest: false, transparent: true, opacity: 0.9 }));
+    edges.computeLineDistances();
+    edges.renderOrder = 8;
+    const fill = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: e.color, transparent: true, opacity: 0.12, depthWrite: false }));
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.5, 3).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: e.color, depthTest: false }));
+    nose.position.set(0, sp.H * 0.95, -sp.L / 2 + 0.3);
+    g.add(edges, fill, nose);
+    g.userData.ghostOf = e.id;
+    g.traverse((c) => (c.userData.entityId = e.id));
+    this.placeGhost(g, e);
+    return g;
   }
 
-  /** Coloca el vehículo sobre el firme, inclinado según la pendiente bajo sus ruedas. */
+  /** Solo se ve el contorno de la posición final del vehículo seleccionado. */
+  showGhostFor(id: string | null) {
+    for (const [gid, g] of this.ghosts) g.visible = gid === id;
+  }
+
+  placeGhost(g: THREE.Object3D, e: VehicleEntity) {
+    g.position.set(e.x, this.surfaceHeight(e.x, e.z), e.z);
+    g.rotation.set(0, (-e.heading * Math.PI) / 180, 0);
+  }
+
+  /** Objeto al que se engancha el gizmo: el fantasma de la posición final si está conducido. */
+  gizmoTarget(e: VehicleEntity): THREE.Object3D | undefined {
+    if (this.isDriven(e)) return this.ghosts.get(e.id);
+    return this.objects.get(e.id);
+  }
+
+  private updateImpactMarker() {
+    if (this.impactMarker) this.root.remove(this.impactMarker);
+    this.impactMarker = null;
+    const ip = this.store.project.impact;
+    if (!ip) return;
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xef5350, depthTest: false, transparent: true, opacity: 0.9 });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 32).rotateX(-Math.PI / 2), mat);
+    const b1 = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.12).rotateX(-Math.PI / 2).rotateY(Math.PI / 4), mat);
+    const b2 = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.12).rotateX(-Math.PI / 2).rotateY(-Math.PI / 4), mat);
+    for (const m of [ring, b1, b2]) m.renderOrder = 9;
+    g.add(ring, b1, b2);
+    g.position.set(ip.x, this.surfaceHeight(ip.x, ip.z) + 0.05, ip.z);
+    this.impactMarker = g;
+    this.root.add(g);
+  }
+
+  /** Estado del vehículo en el instante actual (simulación o posición estática). */
+  vehiclePose(e: VehicleEntity): Frame {
+    const sv = this.sim?.vehicles.get(e.id);
+    if (sv && sv.frames.length) return frameAt(sv, this.time);
+    return { t: this.time, x: e.x, z: e.z, h: e.heading, v: 0, ax: 0, ay: 0, steer: 0, vx: 0, vz: 0 };
+  }
+
+  /** Coloca el vehículo sobre el firme, inclinado por la pendiente y por sus aceleraciones. */
   placeVehicle(obj: THREE.Object3D, e: VehicleEntity) {
     const sp = e.spec;
     const pose = this.vehiclePose(e);
-    const a = (-pose.heading * Math.PI) / 180;
-    const hd = (pose.heading * Math.PI) / 180;
-    const fwd = new THREE.Vector3(Math.sin(hd), 0, -Math.cos(hd)); // dirección del frontal
+    const a = (-pose.h * Math.PI) / 180;
+    const hd = (pose.h * Math.PI) / 180;
+    const fwd = new THREE.Vector3(Math.sin(hd), 0, -Math.cos(hd));
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
     const at = (f: number, r: number) => this.surfaceHeight(pose.x + fwd.x * f + right.x * r, pose.z + fwd.z * f + right.z * r);
     const hf = Math.max(0.3, sp.L / 2 - sp.volD);
@@ -338,24 +565,33 @@ export class World {
     const yRt = at((hf - hr) / 2, hw);
     const y0 = (yF + yR + yL + yRt) / 4;
     obj.position.set(pose.x, y0, pose.z);
-    const pitch = sp.tipo === 'peaton' ? 0 : Math.atan2(yF - yR, hf + hr);
-    const roll = sp.tipo === 'peaton' ? 0 : Math.atan2(yRt - yL, 2 * hw);
+    const ped = sp.tipo === 'peaton';
+    // cabeceo al frenar/acelerar y balanceo en curva (suspensión)
+    const dyn = ped ? 0 : 1;
+    const pitch = ped ? 0 : Math.atan2(yF - yR, hf + hr) + dyn * Math.max(-0.06, Math.min(0.06, pose.ax * 0.0055));
+    const roll = ped ? 0 : Math.atan2(yRt - yL, 2 * hw) + dyn * Math.max(-0.07, Math.min(0.07, pose.ay * 0.007));
     obj.rotation.set(pitch, a, roll, 'YXZ');
-    // Daños visibles a partir del impacto (los vehículos estáticos se muestran ya dañados)
-    const showDamaged = !(e.motion && e.motion.length > 1) || this.time >= 0;
+    // ruedas delanteras giradas
+    obj.traverse((c) => {
+      if (c.userData.wheel && c.userData.axle === 'front') c.rotation.y = (c.userData.baseRotY ?? 0) - pose.steer;
+    });
+    // daños visibles desde el primer contacto
+    const sv = this.sim?.vehicles.get(e.id);
+    const showDamaged = !sv || sv.firstContact === null || this.time >= sv.firstContact;
+    const hasIntact = obj.children.some((x) => x.userData.state === 'intact');
     for (const c of obj.children) {
       if (c.userData.state === 'intact') c.visible = !showDamaged;
-      if (c.userData.state === 'damaged') c.visible = showDamaged || !obj.children.some((x) => x.userData.state === 'intact');
+      if (c.userData.state === 'damaged') c.visible = showDamaged || !hasIntact;
     }
   }
 
-  /** Mueve los vehículos animados al instante t. */
+  /** Coloca los vehículos en el instante t. */
   setTime(t: number) {
     this.time = t;
     for (const e of this.store.project.entities) {
       if (e.kind !== 'vehicle') continue;
       const obj = this.objects.get(e.id);
-      if (obj && (e.motion?.length ?? 0) > 0) this.placeVehicle(obj, e);
+      if (obj) this.placeVehicle(obj, e);
       this.skids.get(e.id)?.update(t);
     }
     this.onTime?.();

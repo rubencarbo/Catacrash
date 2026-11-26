@@ -21,7 +21,15 @@ Esta primera fase es el **editor de escenarios**:
 
 Vehículos: carrocería 3D generada a escala a partir de la ficha (largo, ancho, alto, batalla, vías, voladizos, rueda), color y matrícula. Cada dato indica su origen (catálogo, ficha, estimado o genérico); los que faltan (voladizos, altura del centro de gravedad, inercia de guiñada…) se estiman y se recalculan al corregir cualquier medida. Los daños se marcan por zonas en una silueta (lado, tramo, profundidad y banda de altura) y deforman la carrocería; cada vehículo guarda sus fotos.
 
-Animación: cada vehículo puede tener una trayectoria de posiciones clave (tiempo, posición y, opcionalmente, rumbo, velocidad, velocidad de salida tras el impacto y huella de neumáticos). El recorrido es una curva suave; la velocidad se deduce de tiempos y distancias o se fija. Mover el tiempo y arrastrar el vehículo crea o actualiza la clave (autoclave). La línea de tiempo (0 = impacto) reproduce a varias velocidades, muestra la velocidad instantánea de cada vehículo, avisa de deceleraciones imposibles para el firme (seco μ≈0,8, mojado μ≈0,5) y de vehículos que se atraviesan, ofrece cámaras libre, de seguimiento y del conductor y graba la animación en vídeo WebM. Los daños aparecen desde el instante del impacto y las huellas de frenada y derrape se dibujan siguiendo cada rueda a medida que se producen.
+Simulación física (no pericial, pero físicamente coherente): el movimiento de los vehículos no se dibuja a mano, lo calcula un motor en planta a paso de 1 ms.
+- Neumáticos con fuerza lateral por deriva, frenada con ABS o con bloqueo (huella), tracción y rodadura, limitadas por el círculo de fricción μ·Fz; carga por rueda con transferencia longitudinal y lateral; adherencia según firme (asfalto, tierra, hierba) y estado (seco/mojado); pendiente del terreno.
+- Choques entre carrocerías y contra muros, biondas, barreras, vallas, árboles, postes, señales y edificios: fuerza proporcional a la penetración con rigidez de aplastamiento según la masa, descarga con restitución baja, rozamiento entre carrocerías y par de giro. Se conserva la cantidad de movimiento.
+- Daños calculados: lado, tramo y profundidad del aplastamiento de cada contacto deforman la carrocería desde el instante del choque.
+- Conductor: sigue su ruta (generada por el carril o dibujada) a la velocidad indicada y ejecuta sus acciones (frenar, volantazo, acelerar, soltar). Tras el impacto pierde el control. Con «llegar al punto de colisión en t = 0» la app ajusta su salida para que coincida con el punto marcado en el croquis.
+- Resultados por vehículo: velocidad en el impacto, Δv, aplastamiento, fuerza máxima, reposo; y comparación con la posición final observada (contorno discontinuo).
+- `npm test` ejecuta 21 comprobaciones de plausibilidad (distancias de frenada, crucero, curva, choque contra muro y poste, frontal y lateral, conservación del momento, huellas sin ABS).
+
+La línea de tiempo (0 = impacto) reproduce la simulación a varias velocidades con las velocidades instantáneas, marca acciones y contactos, ofrece cámaras libre, de seguimiento y del conductor y graba vídeo WebM.
 
 Catálogo: `scripts/scrape_autodata.py` extrae de auto-data.net (uso personal) una versión representativa por generación y `scripts/normalize_catalog.py` genera `public/data/vehiculos.json`, que la app carga bajo demanda.
 

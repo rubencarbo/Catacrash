@@ -20,6 +20,12 @@ const BAND_COLORS: Record<BandType, string> = {
   hierba: '#5f7a3b',
 };
 
+/** ¿Se está escribiendo en un campo del panel? (los botones no cuentan) */
+function editingIn(el: HTMLElement) {
+  const a = document.activeElement as HTMLElement | null;
+  return !!a && el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA');
+}
+
 export class Inspector {
   constructor(
     private el: HTMLElement,
@@ -29,10 +35,16 @@ export class Inspector {
     ed.store.on((c: Change) => {
       const sel = ed.store.selection;
       if (c.type === 'all' || c.type === 'entities') return this.render();
-      if (c.type === 'entity' && sel && c.id === sel.id && !this.el.contains(document.activeElement)) this.render();
+      if (c.type === 'entity' && sel && c.id === sel.id && !editingIn(this.el)) this.render();
     });
+    const prevSim = ed.world.onSim;
+    ed.world.onSim = () => {
+      prevSim?.();
+      const sel = ed.store.selection && ed.store.get(ed.store.selection.id);
+      if (sel?.kind === 'vehicle' && !editingIn(this.el)) this.render();
+    };
     ed.inspectorSync = () => {
-      if (!this.el.contains(document.activeElement)) this.render();
+      if (!editingIn(this.el)) this.render();
     };
     this.render();
   }

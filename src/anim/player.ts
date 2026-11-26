@@ -32,16 +32,9 @@ export class Player {
     for (const l of this.listeners) l();
   }
 
-  /** Rango de la animación: el del proyecto o, si no hay, el que abarcan las claves. */
+  /** Rango de la animación (0 = impacto). */
   range(): { start: number; end: number } {
-    const tl = this.store.project.timeline;
-    if (tl) return tl;
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const e of this.store.project.entities)
-      if (e.kind === 'vehicle') for (const k of e.motion ?? []) ((lo = Math.min(lo, k.t)), (hi = Math.max(hi, k.t)));
-    if (!Number.isFinite(lo)) return { start: -5, end: 3 };
-    return { start: Math.min(-1, Math.floor(lo - 0.5)), end: Math.max(1, Math.ceil(hi + 0.5)) };
+    return this.store.project.timeline ?? { start: -4, end: 4 };
   }
 
   setTime(t: number) {
@@ -77,7 +70,7 @@ export class Player {
   private target(): VehicleEntity | null {
     const sel = this.store.selection && this.store.get(this.store.selection.id);
     if (sel && sel.kind === 'vehicle') return sel;
-    return (this.store.project.entities.find((e) => e.kind === 'vehicle' && (e.motion?.length ?? 0) > 1) as VehicleEntity) ?? null;
+    return (this.store.project.entities.find((e) => e.kind === 'vehicle' && !!e.drive) as VehicleEntity) ?? null;
   }
 
   private frame(dt: number) {

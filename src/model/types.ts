@@ -276,6 +276,32 @@ export interface MotionKey {
   marks: boolean;
 }
 
+/** Acción del conductor a partir de un instante (se mantiene hasta otra acción del mismo tipo). */
+export interface DriverEvent {
+  id: ID;
+  t: number;
+  /**
+   * frenar: valor 0–1 (fracción de la frenada máxima) · acelerar: 0–1 ·
+   * soltar: suelta pedales · girar: grados de volante en las ruedas (+ derecha, − izquierda) · recto: vuelve a seguir la ruta
+   */
+  action: 'frenar' | 'acelerar' | 'soltar' | 'girar' | 'recto';
+  value: number;
+}
+
+/** Conducción simulada: ruta prevista, velocidad y acciones del conductor. */
+export interface Drive {
+  path: CtrlPoint[];
+  /** Velocidad al inicio de la simulación (km/h). */
+  speed: number;
+  /** Ajustar el inicio para que el frontal llegue al punto de colisión en t = 0. */
+  sync: boolean;
+  /** Frenos con ABS (si no, las ruedas se bloquean al frenar a fondo y dejan huella). */
+  abs: boolean;
+  events: DriverEvent[];
+  /** Mostrar y comparar la posición final observada (x, z, rumbo del vehículo). */
+  showFinal?: boolean;
+}
+
 export interface VehicleEntity extends EntityBase {
   kind: 'vehicle';
   /** Etiqueta corta que se muestra sobre el vehículo (A, B, V1…). */
@@ -294,6 +320,11 @@ export interface VehicleEntity extends EntityBase {
   photos: ID[];
   /** Trayectoria animada (vacía = vehículo estático en x, z, rumbo). */
   motion?: MotionKey[];
+  /**
+   * Conducción simulada. Si existe, el movimiento lo calcula la física y x, z, rumbo pasan a ser
+   * la posición final observada (croquis) con la que se compara el reposo simulado.
+   */
+  drive?: Drive;
 }
 
 export type Entity =
@@ -353,6 +384,8 @@ export interface Project {
   env: Environment;
   geo: GeoRef | null;
   timeline?: Timeline;
+  /** Punto de colisión previsto (para sincronizar a los vehículos en t = 0). */
+  impact?: { x: number; z: number } | null;
 }
 
 export interface Selection {

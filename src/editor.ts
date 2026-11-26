@@ -178,6 +178,12 @@ export class Editor {
     if (!d) return;
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
     if (moved < 5 && !this.gizmo.dragging) {
+      if (d.button === 0 && this.pickOnce && ev.ground) {
+        const f = this.pickOnce;
+        this.pickOnce = null;
+        f(ev.ground);
+        return;
+      }
       if (d.button === 0) this.tool.click?.(ev);
       else if (d.button === 2) this.tool.rightClick?.(ev);
     }
@@ -188,6 +194,15 @@ export class Editor {
     const e = this.store.get(id);
     if (!e) return;
     this.store.begin();
+    if (kind === 'routeMid' && e.kind === 'vehicle' && e.drive) {
+      const P = e.drive.path;
+      const a = P[index];
+      const b = P[index + 1];
+      P.splice(index + 1, 0, { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, h: null });
+      kind = 'route';
+      index = index + 1;
+      this.store.notify({ type: 'entity', id });
+    }
     if (kind === 'mid' && 'points' in e) {
       const a = e.points[index];
       const b = e.points[(index + 1) % e.points.length];
@@ -196,7 +211,7 @@ export class Editor {
       index = index + 1;
       this.store.select({ id, point: index });
       this.store.notify({ type: 'entity', id });
-    } else if (kind === 'point' || kind === 'key') {
+    } else if (kind === 'point' || kind === 'route') {
       this.store.select({ id, point: index });
     }
     const drag: HandleDrag = { kind, index, id };
@@ -216,10 +231,14 @@ export class Editor {
     if (d.kind === 'point' && 'points' in e) {
       e.points[d.index].x = g.x;
       e.points[d.index].z = g.z;
-    } else if (d.kind === 'key' && e.kind === 'vehicle' && e.motion?.[d.index]) {
-      e.motion[d.index].x = g.x;
-      e.motion[d.index].z = g.z;
-      this.world.invalidateMotion(e.id);
+    } else if (d.kind === 'route' && e.kind === 'vehicle' && e.drive?.path[d.index]) {
+      e.drive.path[d.index].x = g.x;
+      e.drive.path[d.index].z = g.z;
+    } else if (d.kind === 'impact' && this.store.project.impact) {
+      this.store.project.impact.x = g.x;
+      this.store.project.impact.z = g.z;
+      this.store.notify({ type: 'env' });
+      return;
     } else if (d.kind === 'center' && e.kind === 'roundabout') {
       e.cx = g.x + (d.grab?.x ?? 0);
       e.cz = g.z + (d.grab?.y ?? 0);
@@ -260,26 +279,12 @@ export class Editor {
     if (!e || !obj) return;
     if (e.kind === 'vehicle') {
       const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
-      const heading = ((-eu.y / DEG) % 360 + 360) % 360;
-      if (e.motion && e.motion.length) {
-        // Autoclave: se crea o actualiza la posición clave del instante actual
-        const t = Math.round(this.world.time * 100) / 100;
-        let k = e.motion.find((m) => Math.abs(m.t - t) < 0.03);
-        if (!k) {
-          k = { id: newId('k'), t, x: obj.position.x, z: obj.position.z, heading: null, speed: null, marks: false };
-          e.motion.push(k);
-          e.motion.sort((a, b) => a.t - b.t);
-        }
-        k.x = obj.position.x;
-        k.z = obj.position.z;
-        if (this.gizmo.mode === 'rotate' || e.motion.length === 1) k.heading = heading;
-        this.world.invalidateMotion(e.id);
-      } else {
-        e.x = obj.position.x;
-        e.z = obj.position.z;
-        e.heading = heading;
-      }
-      this.world.placeVehicle(obj, e);
+      e.x = obj.position.x;
+      e.z = obj.position.z;
+      e.heading = ((-eu.y / DEG) % 360 + 360) % 360;
+      // conducido: el gizmo mueve la posición final observada (fantasma); si no, el propio vehículo
+      if (this.world.isDriven(e)) this.world.placeGhost(obj, e);
+      else this.world.placeVehicle(obj, e);
       this.inspectorSync?.();
       return;
     }
@@ -297,6 +302,8 @@ export class Editor {
   refreshOptions: (() => void) | null = null;
   /** Entra en el modo «coincidir foto» para la foto indicada. */
   photoMatch: ((id: string) => void) | null = null;
+  /** Captura el próximo clic sobre el suelo (p. ej. fijar el punto de colisión). */
+  pickOnce: ((p: THREE.Vector3) => void) | null = null;
   /** Reproductor de la animación (lo asigna main). */
   player: Player | null = null;
   /** Abre la herramienta de vehículos para cambiar la ficha del vehículo indicado. */
@@ -324,6 +331,7 @@ export class Editor {
     }
     this.gizmo.detach();
     this.handles.clear();
+    this.world.showGhostFor(sel?.id ?? null);
     if (!e) return;
     const obj = this.world.objects.get(e.id);
     if ((e.kind === 'prop' || e.kind === 'linear' || e.kind === 'vehicle') && obj && obj.visible) {
@@ -332,7 +340,8 @@ export class Editor {
       this.selBox.renderOrder = 9;
       this.vp.scene.add(this.selBox);
     }
-    if ((e.kind === 'prop' || e.kind === 'vehicle') && obj && obj.visible && (this.tool.id === 'select' || this.tool.id === 'vehicle')) this.gizmo.attach(obj);
+    const gt = e.kind === 'vehicle' ? this.world.gizmoTarget(e) : obj;
+    if ((e.kind === 'prop' || e.kind === 'vehicle') && gt && obj?.visible && (this.tool.id === 'select' || this.tool.id === 'vehicle')) this.gizmo.attach(gt);
     if (this.tool.handles) this.handles.show(e, sel?.point);
   }
 
@@ -342,6 +351,11 @@ export class Editor {
     if (!sel) return;
     const e = this.store.get(sel.id);
     if (!e) return;
+    if (sel.point !== undefined && e.kind === 'vehicle' && e.drive && e.drive.path.length > 2) {
+      this.store.edit(() => e.drive!.path.splice(sel.point!, 1), { type: 'entity', id: e.id });
+      this.select(e.id);
+      return;
+    }
     if (sel.point !== undefined && 'points' in e && e.points.length > (e.kind === 'area' ? 3 : 2)) {
       this.store.edit(() => e.points.splice(sel.point!, 1), { type: 'entity', id: e.id });
       this.select(e.id);

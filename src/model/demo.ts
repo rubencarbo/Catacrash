@@ -1,6 +1,6 @@
 import { emptyProject, LINEAR_DEFS, ROAD_PRESETS } from './defaults';
 import { newId } from './store';
-import type { CtrlPoint, Entity, LinearType, MotionKey, Params, Project, VehicleEntity } from './types';
+import type { CtrlPoint, Entity, LinearType, Params, Project, VehicleEntity } from './types';
 import { samplePath } from '../scene/spline';
 import { CATALOG } from '../scene/props';
 import { specFromRecord } from '../vehicles/spec';
@@ -169,49 +169,51 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
   const leon = specFromRecord({ marca: 'Seat', modelo: 'Leon', generacion: 'Seat Leon III', desde: 2012, hasta: 2016, carroceria: 'Hatchback', masa: 1346, mma: 1910, L: 4271, W: 1816, H: 1435, batalla: 2631, viaD: 1536, viaT: 1510, traccion: 'Tracción delantera', neumaticos: '225/40 R18', fuente: 'https://www.auto-data.net/es/seat-leon-iii-cupra-2.0-tsi-290hp-dsg-22733' });
   const ateca = specFromRecord({ marca: 'Seat', modelo: 'Ateca', generacion: 'Seat Ateca I', desde: 2016, hasta: 2020, carroceria: 'SUV', masa: 1466, mma: 2080, L: 4363, W: 1841, H: 1611, batalla: 2630, viaD: 1572, viaT: 1544, volD: 868, volT: 865, traccion: 'Tracción en todas las ruedas (4x4)', neumaticos: '215/50 R18', fuente: 'https://www.auto-data.net/es/seat-ateca-i-2.0-tsi-190hp-4drive-dsg-51365' });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -1.6, z: 12.5, heading: 236, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
-    damage: [
-      { id: newId('d'), side: 'frontal', from: 0, to: 0.6, depth: 0.45, hFrom: 0.05, hTo: 0.7, note: 'Frontal izquierdo hundido, rueda delantera izquierda desplazada' },
-      { id: newId('d'), side: 'izquierda', from: 0, to: 0.22, depth: 0.12, hFrom: 0.1, hTo: 0.6, note: 'Aleta delantera izquierda' },
-    ],
+    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -4.1, z: 8.3, heading: 318, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
+    damage: [],
   });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -10.5, z: 0.5, heading: 52, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
-    damage: [{ id: newId('d'), side: 'frontal', from: 0, to: 0.55, depth: 0.35, hFrom: 0.08, hTo: 0.75, note: 'Frontal izquierdo' }],
+    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -0.5, z: 5.2, heading: 6, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
+    damage: [],
   });
 
-  // Animación del siniestro: posiciones clave a lo largo de la carretera (0 = impacto)
+  // Conducción simulada: rutas por los carriles, velocidades y acciones de los conductores (0 = impacto)
   {
     const S = samplePath(pts(road), () => 0, 0.5, true);
     const iImp = S.reduce((b, q, i) => (Math.abs(q.z - 3) < Math.abs(S[b].z - 3) ? i : b), 0);
     const sImp = S[iImp].s;
-    // punto a una distancia s del origen del trazado y desplazamiento lateral o (+ = oeste en sentido sur)
-    const at = (sv: number, o: number) => {
+    // punto a distancia s del trazado y desplazamiento lateral o (+ = oeste en sentido sur)
+    const at = (sv: number, o: number): CtrlPoint => {
       let k = 0;
       while (k < S.length - 2 && S[k + 1].s < sv) k++;
       const q = S[k];
-      return { x: q.x - q.tz * o, z: q.z + q.tx * o };
+      return { x: q.x - q.tz * o, z: q.z + q.tx * o, h: null };
     };
-    const key = (t: number, sv: number, o: number, extra: Partial<MotionKey> = {}): MotionKey => ({ id: newId('k'), t, ...at(sv, o), heading: null, speed: null, marks: false, ...extra });
     const A = E.find((e) => e.kind === 'vehicle' && e.label === 'A') as VehicleEntity;
     const B = E.find((e) => e.kind === 'vehicle' && e.label === 'B') as VehicleEntity;
-    const vA = 85 / 3.6;
-    A.motion = [
-      key(-4, sImp - 2.2 - vA * 4, 1.75, { speed: 85 }),
-      key(-2, sImp - 2.2 - vA * 2, 1.6),
-      key(-0.8, sImp - 2.2 - vA * 0.8, 0.4),
-      key(0, sImp - 2.2, -0.6, { speed: 70, speedOut: 22, marks: true }),
-      key(0.7, sImp - 0.2, -3.1, { heading: 200, marks: true }),
-      { id: newId('k'), t: 2.2, x: A.x, z: A.z, heading: A.heading, speed: 0, marks: false },
-    ];
-    B.motion = [
-      key(-4, sImp + 2.2 + 16.7 * 3.1 + 12.5, -1.75, { speed: 60, heading: null }),
-      key(-0.9, sImp + 2.2 + 12.5, -1.75, { speed: 60, marks: true }),
-      key(0, sImp + 2.2, -1.5, { speed: 40, speedOut: 14, marks: true }),
-      key(0.5, sImp + 3.4, 0.6, { heading: 22, marks: true }),
-      { id: newId('k'), t: 1.8, x: B.x, z: B.z, heading: B.heading, speed: 0, marks: false },
-    ];
-    p.timeline = { start: -4, end: 2.5 };
+    // A (sentido sur) se va abriendo hacia el carril contrario en la curva
+    A.drive = {
+      path: [at(sImp - 140, 1.75), at(sImp - 90, 1.75), at(sImp - 45, 1.5), at(sImp - 18, 0.2), at(sImp, -1.3), at(sImp + 25, -2.6)],
+      speed: 85,
+      sync: true,
+      abs: true,
+      events: [{ id: newId('ev'), t: -0.25, action: 'frenar', value: 1 }],
+      showFinal: true,
+    };
+    // B (sentido norte) por su carril: frena a fondo y da un volantazo a la derecha
+    B.drive = {
+      path: [at(sImp + 140, -1.75), at(sImp + 80, -1.75), at(sImp + 20, -1.75), at(sImp, -1.75), at(sImp - 30, -1.75)],
+      speed: 60,
+      sync: true,
+      abs: true,
+      events: [
+        { id: newId('ev'), t: -0.85, action: 'frenar', value: 1 },
+        { id: newId('ev'), t: -0.8, action: 'girar', value: 6 },
+      ],
+      showFinal: true,
+    };
+    p.impact = at(sImp, -1.2);
+    p.timeline = { start: -4, end: 4 };
   }
 
   p.entities = E;
@@ -284,10 +286,10 @@ function makeSketch(): string | null {
   };
   car(-4.5, -25, Math.PI, 'A1', '#b01c1c', true);
   car(-3.5, 1, Math.PI + 0.25, 'A2', '#b01c1c');
-  car(1.5, 12, Math.PI + 1.1, 'A3', '#b01c1c');
+  car(-4.4, 7.8, (323 * Math.PI) / 180, 'A3', '#b01c1c');
   car(-6.5, 24, -0.25, 'B1', '#0d6b2f', true);
   car(-4.3, 5.2, -0.1, 'B2', '#0d6b2f');
-  car(-11, 0, 0.9, 'B3', '#0d6b2f');
+  car(-0.2, 4.9, (2 * Math.PI) / 180, 'B3', '#0d6b2f');
   // Trayectorias
   pen('#b01c1c', 2.5);
   curve([[-4.5, -22], [-3.5, -12], [-2.8, -3]]);

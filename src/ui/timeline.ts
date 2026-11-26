@@ -3,7 +3,6 @@ import type { Editor } from '../editor';
 import { download } from '../io/file';
 import type { VehicleEntity } from '../model/types';
 import { clear, fmt, h, toast } from './dom';
-import { findOverlaps } from '../anim/overlap';
 
 const ICONS = {
   play: '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg>',
@@ -13,7 +12,7 @@ const ICONS = {
   rec: '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="7" fill="currentColor"/></svg>',
 };
 
-const fmtT = (t: number) => `${t < 0 ? '−' : t > 0 ? '+' : ''}${fmt(Math.abs(t), 2)} s`;
+const fmtT = (t: number) => (Math.abs(t) < 0.005 ? '0,00 s' : `${t < 0 ? '−' : '+'}${fmt(Math.abs(t), 2)} s`);
 
 /** Barra de animación en la parte inferior del visor. */
 export class TimelineBar {
@@ -25,7 +24,6 @@ export class TimelineBar {
   private speedInfo: HTMLElement;
   private recorder: MediaRecorder | null = null;
   private warn: HTMLElement;
-  private warnTimer = 0;
 
   constructor(
     host: HTMLElement,
@@ -76,12 +74,14 @@ export class TimelineBar {
     );
     host.append(this.el);
     player.on(() => this.sync());
-    ed.store.on(() => {
+    ed.store.on(() => this.syncMarks());
+    const prevSim = ed.world.onSim;
+    ed.world.onSim = () => {
+      prevSim?.();
       this.syncMarks();
-      clearTimeout(this.warnTimer);
-      this.warnTimer = window.setTimeout(() => this.checkOverlaps(), 400);
-    });
-    setTimeout(() => this.checkOverlaps(), 500);
+      this.checkOverlaps();
+    };
+    setTimeout(() => this.checkOverlaps(), 300);
     ed.store.onSelect(() => this.syncMarks());
     window.addEventListener('keydown', (e) => {
       const tgt = e.target as HTMLElement;
@@ -115,9 +115,10 @@ export class TimelineBar {
     // Velocidades instantáneas de los vehículos animados
     const parts: string[] = [];
     for (const e of this.ed.store.project.entities) {
-      if (e.kind !== 'vehicle' || (e.motion?.length ?? 0) < 2) continue;
+      if (e.kind !== 'vehicle' || !this.ed.world.sim?.vehicles.has(e.id)) continue;
       const p = this.ed.world.vehiclePose(e);
-      parts.push(`${e.label}: ${Math.round(p.speed * 3.6)} km/h`);
+      if (!this.ed.world.isDriven(e) && p.v < 0.05) continue;
+      parts.push(`${e.label}: ${Math.round(p.v * 3.6)} km/h`);
     }
     this.speedInfo.textContent = parts.join(' · ');
   }
@@ -134,36 +135,44 @@ export class TimelineBar {
     if (0 >= start && 0 <= end) this.marks.append(h('span', { class: 'tl-impact', style: `left:${pct(0)}`, title: 'Impacto' }));
     const sel = this.ed.store.selection?.id;
     for (const e of this.ed.store.project.entities) {
-      if (e.kind !== 'vehicle' || !e.motion?.length) continue;
+      if (e.kind !== 'vehicle' || !e.drive) continue;
       const v = e as VehicleEntity;
-      for (const k of v.motion!)
+      for (const ev of v.drive!.events)
         this.marks.append(
           h('span', {
             class: 'tl-key' + (v.id === sel ? ' sel' : ''),
-            style: `left:${pct(k.t)};background:${v.color}`,
-            title: `${v.label} · ${fmtT(k.t)}`,
+            style: `left:${pct(ev.t)};background:${v.color}`,
+            title: `${v.label} · ${ev.action} ${ev.value} · ${fmtT(ev.t)}`,
           }),
         );
     }
+    for (const c of this.ed.world.sim?.contacts ?? [])
+      if (c.peakForce > 2000) this.marks.append(h('span', { class: 'tl-hit', style: `left:${pct(c.t0)}`, title: `Contacto ${c.bName}` }));
     this.sync();
   }
 
-  /** Avisa si algún par de vehículos se atraviesa durante la animación. */
+  /** Resumen de contactos de la simulación (qué choca con qué y cuándo). */
   private checkOverlaps() {
-    const vs = this.ed.store.project.entities.filter((e): e is VehicleEntity => e.kind === 'vehicle' && !e.hidden);
-    const { start, end } = this.player.range();
-    const list = findOverlaps(this.ed.world, vs, start, end);
     clear(this.warn);
-    for (const o of list.slice(0, 3))
+    const sim = this.ed.world.sim;
+    if (!sim) return;
+    const name = (id: string) => {
+      const e = this.ed.store.get(id);
+      return e && e.kind === 'vehicle' ? e.label || e.name : id;
+    };
+    // agrupar contactos del mismo par (p. ej. dos tramos seguidos de una bionda)
+    const groups: typeof sim.contacts = [];
+    for (const c of sim.contacts.filter((c) => c.peakForce > 2000)) {
+      const g = groups.find((x) => x.a === c.a && x.bName === c.bName && Math.abs(x.t0 - c.t0) < 0.3);
+      if (!g) groups.push({ ...c });
+      else if (c.peakForce > g.peakForce) Object.assign(g, { ...c, t0: Math.min(g.t0, c.t0) });
+    }
+    for (const c of groups.slice(0, 4))
       this.warn.append(
         h(
           'button',
-          {
-            class: 'tl-warn-item',
-            title: 'Ir a ese instante',
-            onclick: () => (this.player.pause(), this.player.setTime(o.from)),
-          },
-          `⚠ ${o.a} y ${o.b} se atraviesan entre ${fmtT(o.from)} y ${fmtT(o.to)} (hasta ${fmt(o.max, 1)} m)`,
+          { class: 'tl-contact', title: 'Ir a ese instante', onclick: () => (this.player.pause(), this.player.setTime(c.t0)) },
+          `💥 ${name(c.a)} — ${c.bName} en ${fmtT(c.t0)} · Δv ${Math.round(c.dvA * 3.6)}${this.ed.store.get(c.b)?.kind === 'vehicle' ? ` / ${Math.round(c.dvB * 3.6)}` : ''} km/h`,
         ),
       );
   }
