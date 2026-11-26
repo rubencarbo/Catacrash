@@ -252,7 +252,17 @@ export class Editor {
     const sel = this.store.selection;
     const e = sel && this.store.get(sel.id);
     const obj = this.gizmo.object;
-    if (!e || e.kind !== 'prop' || !obj) return;
+    if (!e || !obj) return;
+    if (e.kind === 'vehicle') {
+      e.x = obj.position.x;
+      e.z = obj.position.z;
+      const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
+      e.heading = ((-eu.y / DEG) % 360 + 360) % 360;
+      this.world.placeVehicle(obj, e);
+      this.inspectorSync?.();
+      return;
+    }
+    if (e.kind !== 'prop') return;
     e.x = obj.position.x;
     e.z = obj.position.z;
     e.rot = ((-obj.rotation.y / DEG) % 360 + 360) % 360;
@@ -266,6 +276,8 @@ export class Editor {
   refreshOptions: (() => void) | null = null;
   /** Entra en el modo «coincidir foto» para la foto indicada. */
   photoMatch: ((id: string) => void) | null = null;
+  /** Abre la herramienta de vehículos para cambiar la ficha del vehículo indicado. */
+  vehicleChangeSpec: ((id: string) => void) | null = null;
 
   setGizmoMode(mode: 'translate' | 'rotate') {
     this.gizmo.setMode(mode);
@@ -291,13 +303,13 @@ export class Editor {
     this.handles.clear();
     if (!e) return;
     const obj = this.world.objects.get(e.id);
-    if ((e.kind === 'prop' || e.kind === 'linear') && obj && obj.visible) {
+    if ((e.kind === 'prop' || e.kind === 'linear' || e.kind === 'vehicle') && obj && obj.visible) {
       this.selBox = new THREE.BoxHelper(obj, 0xffb020);
       (this.selBox.material as THREE.LineBasicMaterial).depthTest = false;
       this.selBox.renderOrder = 9;
       this.vp.scene.add(this.selBox);
     }
-    if (e.kind === 'prop' && obj && obj.visible && this.tool.id === 'select') this.gizmo.attach(obj);
+    if ((e.kind === 'prop' || e.kind === 'vehicle') && obj && obj.visible && (this.tool.id === 'select' || this.tool.id === 'vehicle')) this.gizmo.attach(obj);
     if (this.tool.handles) this.handles.show(e, sel?.point);
   }
 
@@ -322,8 +334,8 @@ export class Editor {
     const c = structuredClone(e) as Entity;
     c.id = newId();
     c.name = e.name + ' (copia)';
-    if (c.kind === 'prop') {
-      c.x += 2;
+    if (c.kind === 'prop' || c.kind === 'vehicle') {
+      c.x += c.kind === 'vehicle' ? c.spec.W + 1 : 2;
       c.z += 2;
     } else if ('points' in c) c.points.forEach((p) => ((p.x += 3), (p.z += 3)));
     else if (c.kind === 'roundabout') c.cx += c.radius * 2.5;
@@ -390,7 +402,7 @@ export class Editor {
     if (k === 'f') return this.focusSelection();
     if (k === 'p') return this.vp.topView();
     const sel = this.store.selection && this.store.get(this.store.selection.id);
-    if (sel?.kind === 'prop' && (k === 'g' || k === 'r')) return this.setGizmoMode(k === 'g' ? 'translate' : 'rotate');
+    if ((sel?.kind === 'prop' || sel?.kind === 'vehicle') && (k === 'g' || k === 'r')) return this.setGizmoMode(k === 'g' ? 'translate' : 'rotate');
     for (const t of this.tools.values()) if (t.key === k) return this.setTool(t.id);
   }
 }

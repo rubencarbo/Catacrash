@@ -676,3 +676,180 @@ input[type='range'] {
     line-height: 1.5;
   }
 }
+
+.label.vehicle {
+  background: #15171ae6;
+  border: 1px solid var(--line-2);
+  border-left: 6px solid var(--chip, var(--accent));
+  color: var(--text);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* vehículos */
+textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 6px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.pending-box {
+  border: 1px solid #5a4316;
+  background: #241c0d;
+  border-radius: var(--radius);
+  padding: 10px;
+  margin-bottom: 10px;
+  display: grid;
+  gap: 4px;
+}
+.results {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.result {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  cursor: pointer;
+  width: 100%;
+}
+.result:hover {
+  border-color: var(--accent);
+}
+.result .r-title {
+  font-weight: 600;
+}
+.result .r-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.spec-field > span:not(.src) {
+  padding-left: 20px;
+}
+.spec-field {
+  position: relative;
+}
+.src {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #111;
+}
+.spec-field > .src {
+  position: absolute;
+  left: 0;
+  top: 1px;
+}
+.src-catalogo {
+  background: #64b5f6;
+}
+.src-ficha {
+  background: #81c784;
+}
+.src-estimado {
+  background: #ffb74d;
+}
+.src-generico {
+  background: #b0bec5;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11.5px;
+}
+.damage-wrap {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.damage-svg {
+  width: 130px;
+  cursor: crosshair;
+}
+.damage-svg .body {
+  fill: #2a2f35;
+  stroke: #8a939c;
+  stroke-width: 1.5;
+}
+.damage-svg .axle {
+  stroke: #4b545d;
+  stroke-dasharray: 3 3;
+}
+.damage-svg .zone {
+  fill: #ef5350cc;
+  stroke: #ffcdd2;
+}
+.damage-svg .zone.roof {
+  fill: #ef535066;
+}
+.damage-svg .lbl {
+  fill: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
+.damage-zone {
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--danger);
+  border-radius: 5px;
+  padding: 8px;
+  margin: 8px 0;
+}
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.thumb {
+  position: relative;
+}
+.thumb img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: zoom-in;
+  display: block;
+}
+.thumb .icon-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #15171acc;
+}
+.lightbox {
+  margin: 0;
+  max-width: 92vw;
+  max-height: 90vh;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+.lightbox img {
+  max-width: 92vw;
+  max-height: 84vh;
+  border-radius: 6px;
+}
+.lightbox figcaption {
+  color: var(--text);
+}

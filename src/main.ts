@@ -12,6 +12,7 @@ import { World } from './scene/world';
 import { drawTool, measureTool, selectTool } from './tools/basic';
 import { overlayTool } from './tools/overlayTool';
 import { placeTool } from './tools/place';
+import { vehicleTool } from './tools/vehicleTool';
 import { photoTool } from './tools/photoTool';
 import { roundaboutTool } from './tools/roundaboutTool';
 import { sculptTool } from './tools/sculpt';
@@ -37,6 +38,7 @@ async function boot() {
   ed.register(drawTool(ed, 'area'));
   ed.register(drawTool(ed, 'river'));
   ed.register(drawTool(ed, 'linear'));
+  ed.register(vehicleTool(ed));
   ed.register(placeTool(ed));
   ed.register(sculptTool(ed));
   ed.register(overlayTool(ed));
@@ -293,6 +295,7 @@ function showHelp(store: Store) {
         ['B', 'Áreas: ensanches de cruces, isletas, explanadas'],
         ['A', 'Dibujar río / cauce'],
         ['L', 'Elementos lineales (muro, valla, guardarraíl, tendido…)'],
+        ['H', 'Vehículos y peatones (catálogo, genéricos, ficha técnica)'],
         ['O', 'Colocar objetos (árboles, señales, farolas…)'],
         ['T', 'Modelar terreno'],
         ['K', 'Calcos (croquis, capturas, ortofoto)'],

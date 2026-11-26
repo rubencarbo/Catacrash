@@ -2,6 +2,7 @@ import { emptyProject, LINEAR_DEFS, ROAD_PRESETS } from './defaults';
 import { newId } from './store';
 import type { CtrlPoint, Entity, LinearType, Params, Project } from './types';
 import { CATALOG } from '../scene/props';
+import { specFromRecord } from '../vehicles/spec';
 import { rng, valueNoise2D } from '../scene/utils';
 
 /**
@@ -162,6 +163,21 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
   });
   prop('farola', 'Farola acceso finca', -27, -55, 90, { altura: 7 });
   prop('contenedor', 'Contenedor', -35, -74, 70, { tipo: 'resto' });
+
+  // Vehículos implicados en sus posiciones finales (según el croquis), con daños frontales
+  const leon = specFromRecord({ marca: 'Seat', modelo: 'Leon', generacion: 'Seat Leon III', desde: 2012, hasta: 2016, carroceria: 'Hatchback', masa: 1346, mma: 1910, L: 4271, W: 1816, H: 1435, batalla: 2631, viaD: 1536, viaT: 1510, traccion: 'Tracción delantera', neumaticos: '225/40 R18', fuente: 'https://www.auto-data.net/es/seat-leon-iii-cupra-2.0-tsi-290hp-dsg-22733' });
+  const ateca = specFromRecord({ marca: 'Seat', modelo: 'Ateca', generacion: 'Seat Ateca I', desde: 2016, hasta: 2020, carroceria: 'SUV', masa: 1466, mma: 2080, L: 4363, W: 1841, H: 1611, batalla: 2630, viaD: 1572, viaT: 1544, volD: 868, volT: 865, traccion: 'Tracción en todas las ruedas (4x4)', neumaticos: '215/50 R18', fuente: 'https://www.auto-data.net/es/seat-ateca-i-2.0-tsi-190hp-4drive-dsg-51365' });
+  E.push({
+    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -1.6, z: 12.5, heading: 236, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
+    damage: [
+      { id: newId('d'), side: 'frontal', from: 0, to: 0.6, depth: 0.45, hFrom: 0.05, hTo: 0.7, note: 'Frontal izquierdo hundido, rueda delantera izquierda desplazada' },
+      { id: newId('d'), side: 'izquierda', from: 0, to: 0.22, depth: 0.12, hFrom: 0.1, hTo: 0.6, note: 'Aleta delantera izquierda' },
+    ],
+  });
+  E.push({
+    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -10.5, z: 0.5, heading: 52, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
+    damage: [{ id: newId('d'), side: 'frontal', from: 0, to: 0.55, depth: 0.35, hFrom: 0.08, hTo: 0.75, note: 'Frontal izquierdo' }],
+  });
 
   p.entities = E;
 

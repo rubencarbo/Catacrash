@@ -182,6 +182,101 @@ export interface OverlayEntity extends EntityBase {
   onRoads: boolean;
 }
 
+// ---------- Vehículos ----------
+
+export type VehicleType =
+  | 'urbano'
+  | 'compacto'
+  | 'berlina'
+  | 'familiar'
+  | 'coupe'
+  | 'suv'
+  | 'suv_grande'
+  | 'monovolumen'
+  | 'todoterreno'
+  | 'pickup'
+  | 'furgoneta'
+  | 'furgon'
+  | 'camion'
+  | 'tractora'
+  | 'autobus'
+  | 'moto'
+  | 'ciclomotor'
+  | 'bicicleta'
+  | 'patinete'
+  | 'peaton';
+
+/** Origen de cada dato de la ficha. */
+export type SpecSource = 'catalogo' | 'ficha' | 'estimado' | 'generico';
+
+/** Ficha del vehículo. Longitudes en metros, masas en kg. */
+export interface VehicleSpec {
+  tipo: VehicleType;
+  marca: string;
+  modelo: string;
+  version: string;
+  anio: number | null;
+  L: number;
+  W: number;
+  H: number;
+  batalla: number;
+  viaD: number;
+  viaT: number;
+  volD: number;
+  volT: number;
+  /** Masa en orden de marcha (incluye 75 kg de conductor según la norma UE). */
+  masa: number;
+  mma: number | null;
+  /** Diámetro exterior de la rueda. */
+  rueda: number;
+  traccion: 'delantera' | 'trasera' | 'total';
+  /** Altura del centro de gravedad sobre el suelo. */
+  cdgAltura: number;
+  /** Distancia del centro de gravedad al eje delantero. */
+  cdgEje: number;
+  /** Momento de inercia de guiñada (kg·m²). */
+  inercia: number;
+  /** De dónde sale cada dato (los que faltan se consideran estimados). */
+  origen: Partial<Record<SpecKey, SpecSource>>;
+  url?: string;
+}
+
+export type SpecKey = 'L' | 'W' | 'H' | 'batalla' | 'viaD' | 'viaT' | 'volD' | 'volT' | 'masa' | 'mma' | 'rueda' | 'cdgAltura' | 'cdgEje' | 'inercia';
+
+export type DamageSide = 'frontal' | 'trasera' | 'izquierda' | 'derecha' | 'techo';
+
+/** Zona dañada: tramo de un lado del vehículo (0–1 de izquierda a derecha o de delante atrás). */
+export interface DamageZone {
+  id: ID;
+  side: DamageSide;
+  from: number;
+  to: number;
+  /** Profundidad máxima del aplastamiento (m). */
+  depth: number;
+  /** Banda de altura afectada (fracción de la altura del vehículo). */
+  hFrom: number;
+  hTo: number;
+  note: string;
+}
+
+export interface VehicleEntity extends EntityBase {
+  kind: 'vehicle';
+  /** Etiqueta corta que se muestra sobre el vehículo (A, B, V1…). */
+  label: string;
+  spec: VehicleSpec;
+  x: number;
+  z: number;
+  /** Rumbo en grados desde el norte, sentido horario (hacia donde mira el frontal). */
+  heading: number;
+  color: string;
+  plate: string;
+  occupants: number;
+  cargo: number;
+  damage: DamageZone[];
+  /** Fotos del vehículo (ids de imágenes guardadas). */
+  photos: ID[];
+}
+
 export type Entity =
   | RoadEntity
   | RiverEntity
@@ -190,7 +285,8 @@ export type Entity =
   | OverlayEntity
   | AreaEntity
   | RoundaboutEntity
-  | PhotoEntity;
+  | PhotoEntity
+  | VehicleEntity;
 export type EntityKind = Entity['kind'];
 export type SplineEntity = RoadEntity | RiverEntity | LinearEntity | AreaEntity;
 

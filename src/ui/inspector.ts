@@ -4,6 +4,7 @@ import type { FieldDef } from '../model/fields';
 import type { Change } from '../model/store';
 import type { AreaMaterial, Band, BandType, Entity, LineType, LinearType, ParamValue, RoadEntity, RoundaboutEntity } from '../model/types';
 import { AREA_LABELS } from '../scene/area';
+import { renderVehicleInspector } from './vehicleInspector';
 import { CATALOG } from '../scene/props';
 import { clear, fmt, h } from './dom';
 import { ICON } from './icons';
@@ -219,6 +220,9 @@ export class Inspector {
         );
         break;
       }
+      case 'vehicle':
+        renderVehicleInspector(el, this.ed, e, this.numberField.bind(this));
+        break;
       case 'river':
         el.append(
           h('div', { class: 'panel-title' }, 'Río / cauce'),

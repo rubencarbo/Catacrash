@@ -4,6 +4,7 @@ import { clear, h } from './dom';
 import { ICON } from './icons';
 
 const GROUPS: [EntityKind, string, string][] = [
+  ['vehicle', 'Vehículos y peatones', ICON.car],
   ['overlay', 'Calcos', ICON.image],
   ['photo', 'Fotos de referencia', ICON.camera],
   ['road', 'Carreteras', ICON.road],

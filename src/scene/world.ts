@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { Change, Store } from '../model/store';
-import type { AreaEntity, Entity, LinearEntity, OverlayEntity, PropEntity, RiverEntity, RoadEntity, RoundaboutEntity } from '../model/types';
+import type { AreaEntity, Entity, LinearEntity, OverlayEntity, PropEntity, RiverEntity, RoadEntity, RoundaboutEntity, VehicleEntity } from '../model/types';
+import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import { buildVehicle } from './vehicle3d';
 import { areaGeometry, areaShaper, buildArea, type AreaGeom } from './area';
 import { roadFootprint, type Footprint } from './footprint';
 import { buildPhotoMarker } from './photo';
@@ -113,6 +115,9 @@ export class World {
     if (o) {
       this.root.remove(o);
       o.traverse((c) => {
+        if (c instanceof CSS2DObject) c.element.remove();
+      });
+      o.traverse((c) => {
         const m = c as THREE.Mesh;
         if (m.geometry && !m.geometry.userData.shared) m.geometry.dispose();
       });
@@ -199,7 +204,7 @@ export class World {
     for (const a of areas) this.addObject(a, buildArea(a, areaGeo.get(a.id)!));
     this.root.updateMatrixWorld(true);
     for (const e of p.entities) {
-      if (e.kind === 'linear' || e.kind === 'prop' || e.kind === 'photo') this.rebuildEntity(e.id);
+      if (e.kind === 'linear' || e.kind === 'prop' || e.kind === 'photo' || e.kind === 'vehicle') this.rebuildEntity(e.id);
     }
     this.refreshOverlays();
     this.applyEnv();
@@ -222,6 +227,9 @@ export class World {
       case 'photo':
         this.addObject(e, buildPhotoMarker(e, this.terrain.height(e.x, e.z)));
         break;
+      case 'vehicle':
+        this.addObject(e, this.makeVehicle(e));
+        break;
       default:
         this.pendingFull = true;
         this.schedule();
@@ -242,6 +250,48 @@ export class World {
     const y = onSurface ? this.surfaceHeight(e.x, e.z) : this.terrain.height(e.x, e.z);
     obj.position.set(e.x, y + e.dy, e.z);
     obj.rotation.set(0, (-e.rot * Math.PI) / 180, 0);
+  }
+
+  private makeVehicle(e: VehicleEntity) {
+    const wrap = new THREE.Group();
+    wrap.rotation.order = 'YXZ';
+    wrap.add(buildVehicle(e));
+    const div = document.createElement('div');
+    div.className = 'label vehicle';
+    div.textContent = e.label || e.name;
+    div.style.setProperty('--chip', e.color);
+    const lbl = new CSS2DObject(div);
+    lbl.position.set(0, e.spec.H + 0.9, 0);
+    lbl.userData.isLabel = true;
+    wrap.add(lbl);
+    this.placeVehicle(wrap, e);
+    return wrap;
+  }
+
+  /** Coloca el vehículo sobre el firme, inclinado según la pendiente bajo sus ruedas. */
+  placeVehicle(obj: THREE.Object3D, e: VehicleEntity) {
+    const sp = e.spec;
+    const a = (-e.heading * Math.PI) / 180;
+    const hd = (e.heading * Math.PI) / 180;
+    const fwd = new THREE.Vector3(Math.sin(hd), 0, -Math.cos(hd)); // dirección del frontal
+    const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const at = (f: number, r: number) => {
+      const x = e.x + fwd.x * f + right.x * r;
+      const z = e.z + fwd.z * f + right.z * r;
+      return this.surfaceHeight(x, z);
+    };
+    const hf = Math.max(0.3, sp.L / 2 - sp.volD);
+    const hr = Math.max(0.3, sp.L / 2 - sp.volT);
+    const hw = Math.max(0.15, (sp.viaD || sp.W * 0.8) / 2);
+    const yF = at(hf, 0);
+    const yR = at(-hr, 0);
+    const yL = at((hf - hr) / 2, -hw);
+    const yRt = at((hf - hr) / 2, hw);
+    const y0 = (yF + yR + yL + yRt) / 4;
+    obj.position.set(e.x, y0, e.z);
+    const pitch = sp.tipo === 'peaton' ? 0 : Math.atan2(yF - yR, hf + hr);
+    const roll = sp.tipo === 'peaton' ? 0 : Math.atan2(yRt - yL, 2 * hw);
+    obj.rotation.set(pitch, a, roll, 'YXZ');
   }
 
   private addObject(e: Entity, o: THREE.Object3D) {

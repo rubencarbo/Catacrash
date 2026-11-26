@@ -16,7 +16,11 @@ function b64ToF32(b: string) {
 
 /** Serializa proyecto + imágenes en un único JSON portable (.catacrash.json). */
 export function serialize(p: Project, assets: Map<string, string>): string {
-  const used = new Set(p.entities.filter((e) => e.kind === 'overlay').map((e) => (e.kind === 'overlay' ? e.asset : '')));
+  const used = new Set<string>();
+  for (const e of p.entities) {
+    if (e.kind === 'overlay' || e.kind === 'photo') used.add(e.asset);
+    if (e.kind === 'vehicle') e.photos.forEach((a) => used.add(a));
+  }
   return JSON.stringify({
     format: 'catacrash',
     project: { ...p, terrain: { ...p.terrain, base: f32ToB64(p.terrain.base) } },

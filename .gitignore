@@ -5,3 +5,4 @@ dist-demo/
 .DS_Store
 .env*
 .firebase/
+public/data/vehiculos-autodata.json
