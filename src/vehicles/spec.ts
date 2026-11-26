@@ -136,8 +136,8 @@ export function tyreDiameter(s: string): number | null {
 export function guessType(body: string, L: number, H: number): VehicleType {
   const b = body.toLowerCase();
   if (/pick/.test(b)) return 'pickup';
-  if (/cami[oó]n|chasis|truck/.test(b)) return 'camion';
-  if (/furg|van|combi|minibus|bus/.test(b)) return H > 2.1 || L > 5.2 ? 'furgon' : 'furgoneta';
+  if (/furg|van|combi|minibus|bus|camioneta/.test(b)) return H > 2.1 || L > 5.2 ? 'furgon' : 'furgoneta';
+  if (/cami[oó]n|chasis|truck/.test(b)) return L > 6.5 || H > 2.9 ? 'camion' : H > 2.1 ? 'furgon' : 'pickup';
   if (/todoterreno|off-road|off road|4x4/.test(b)) return 'todoterreno';
   if (/suv|todocamino|crossover/.test(b)) return L > 4.6 ? 'suv_grande' : 'suv';
   if (/monovolumen|mpv|minivan/.test(b)) return 'monovolumen';

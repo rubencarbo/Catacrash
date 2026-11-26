@@ -27,7 +27,7 @@ export function nextLabel(ed: Editor) {
 
 /** Herramienta de vehículos: genéricos, catálogo de modelos reales, biblioteca propia y ficha pegada. */
 export function vehicleTool(ed: Editor): Tool {
-  let tab: 'genericos' | 'catalogo' | 'biblioteca' | 'ficha' = 'catalogo';
+  let tab: 'genericos' | 'catalogo' | 'biblioteca' | 'ficha' = 'genericos';
   let pending: VehicleSpec | null = null;
   let heading = 0;
   let ghost: THREE.Object3D | null = null;
@@ -213,8 +213,8 @@ export function vehicleTool(ed: Editor): Tool {
       }
       const tabs = h('div', { class: 'seg' });
       for (const [k, l] of [
-        ['catalogo', 'Catálogo'],
         ['genericos', 'Genéricos'],
+        ['catalogo', 'Catálogo'],
         ['biblioteca', 'Mi biblioteca'],
         ['ficha', 'Pegar ficha'],
       ] as [typeof tab, string][])

@@ -42,13 +42,18 @@ export function searchCatalog(list: CatalogRecord[], query: string, limit = 60):
     const hay = norm(`${r.marca} ${r.modelo} ${r.generacion} ${r.carroceria ?? r.tipo ?? ''}`);
     let ok = true;
     let score = 0;
+    const hayWords = hay.split(/\s+/);
     for (const t of terms) {
-      const i = hay.indexOf(t);
-      if (i < 0) {
-        ok = false;
-        break;
-      }
-      score += i === 0 || hay[i - 1] === ' ' ? 2 : 1;
+      // Números romanos de generación (ii, vii…) y números cortos: palabra exacta
+      const exact = /^[ivx]+$/.test(t) || /^\d{1,3}$/.test(t);
+      const w = hayWords.findIndex((hw) => (exact ? hw === t : hw.startsWith(t)));
+      if (w < 0) {
+        if (exact || !hay.includes(t)) {
+          ok = false;
+          break;
+        }
+        score += 1;
+      } else score += hayWords[w] === t ? 3 : 2;
     }
     if (ok) out.push({ r, score: score + (r.desde ?? 0) / 10000 });
   }
