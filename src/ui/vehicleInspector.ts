@@ -102,11 +102,15 @@ export function renderVehicleInspector(el: HTMLElement, ed: Editor, e: VehicleEn
     const f = numberField(
       label,
       ((sp[k] as number) ?? 0) * scale,
-      (v) =>
+      (v) => {
+        // quitar el foco para que el inspector se redibuje con los valores recalculados
+        (document.activeElement as HTMLElement | null)?.blur();
         change(() => {
-          (sp as unknown as Record<string, number>)[k] = v / scale;
-          e.spec = respec(sp, k);
-        }),
+          const cur = e.spec;
+          (cur as unknown as Record<string, number>)[k] = v / scale;
+          e.spec = respec(cur, k);
+        });
+      },
       unit,
       step,
     );
@@ -170,8 +174,8 @@ export function renderVehicleInspector(el: HTMLElement, ed: Editor, e: VehicleEn
         {
           class: 'btn',
           onclick: async () => {
-            await saveToLibrary(specTitle(sp), sp);
-            toast(`Guardado en tu biblioteca: ${specTitle(sp)}`);
+            await saveToLibrary(specTitle(e.spec), e.spec);
+            toast(`Guardado en tu biblioteca: ${specTitle(e.spec)}`);
           },
         },
         'Guardar en mi biblioteca',

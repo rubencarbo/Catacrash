@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 BASE = "https://www.auto-data.net"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"
 MIN_YEAR = 1985
-WORKERS = 3
+WORKERS = int(os.environ.get("WORKERS", "3"))
 PAUSE = 0.35
 
 CACHE = sys.argv[1] if len(sys.argv) > 1 else "/tmp/autodata-cache"

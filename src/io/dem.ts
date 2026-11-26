@@ -148,7 +148,7 @@ const isTiff = (b: ArrayBuffer) => {
   return (u[0] === 0x49 && u[1] === 0x49 && u[2] === 42) || (u[0] === 0x4d && u[1] === 0x4d && u[3] === 42);
 };
 
-/** Descarga el MDT del IGN para la zona de la escena (prueba varios servicios). */
+/** Descarga el MDT del IGN (malla de 5 m; si falla, la de 25 m) para la zona de la escena. */
 export async function fetchIgnDem(geo: GeoRef, size: number): Promise<Dem> {
   const m = size / 2 + 20;
   const e1 = (geo.e0 - m).toFixed(1);
@@ -158,7 +158,6 @@ export async function fetchIgnDem(geo: GeoRef, size: number): Promise<Dem> {
   const ep = geo.epsg;
   const urls = [
     `https://servicios.idee.es/wcs-inspire/mdt?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID=Elevacion${ep}_5&SUBSET=x(${e1},${e2})&SUBSET=y(${n1},${n2})&FORMAT=image/tiff`,
-    `https://api-coverages.idee.es/collections/EL.ElevationGridCoverage_${ep}_5_PB/coverage?subset=x(${e1}:${e2}),y(${n1}:${n2})&f=GeoTIFF`,
     `https://servicios.idee.es/wcs-inspire/mdt?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID=Elevacion${ep}_25&SUBSET=x(${e1},${e2})&SUBSET=y(${n1},${n2})&FORMAT=image/tiff`,
   ];
   const errors: string[] = [];

@@ -70,7 +70,7 @@ export function patchOverlay(mat: THREE.MeshStandardMaterial, target: 'ground' |
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + FRAG_DECL)
-      .replace('#include <map_fragment>', '#include <map_fragment>\n' + FRAG_APPLY);
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG_APPLY);
   };
   mat.customProgramCacheKey = () => 'overlay-' + target;
 }

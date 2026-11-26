@@ -155,8 +155,8 @@ function planHalf(W: number, L: number, corner: number, frontSq = 1, rearSq = 1)
     const df = s / c;
     const dr = (L - s) / c;
     let k = 1;
-    if (df < 1) k = Math.min(k, 1 - (1 - Math.sqrt(1 - (1 - df) ** 2)) * 0.55 * frontSq);
-    if (dr < 1) k = Math.min(k, 1 - (1 - Math.sqrt(1 - (1 - dr) ** 2)) * 0.5 * rearSq);
+    if (df < 1) k = Math.min(k, 1 - (1 - Math.sqrt(1 - (1 - df) ** 2)) * 0.35 * frontSq);
+    if (dr < 1) k = Math.min(k, 1 - (1 - Math.sqrt(1 - (1 - dr) ** 2)) * 0.28 * rearSq);
     return (W / 2) * k;
   };
 }

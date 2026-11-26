@@ -218,7 +218,20 @@ export function vehicleTool(ed: Editor): Tool {
         ['biblioteca', 'Mi biblioteca'],
         ['ficha', 'Pegar ficha'],
       ] as [typeof tab, string][])
-        tabs.append(h('button', { class: k === tab ? 'active' : '', onclick: () => ((tab = k), ed.refreshOptions?.()) }, l));
+        tabs.append(
+          h(
+            'button',
+            {
+              class: k === tab ? 'active' : '',
+              onclick: async () => {
+                tab = k;
+                if (k === 'biblioteca') library = await loadLibrary();
+                ed.refreshOptions?.();
+              },
+            },
+            l,
+          ),
+        );
       el.append(tabs);
 
       if (tab === 'genericos') {
