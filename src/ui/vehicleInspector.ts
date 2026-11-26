@@ -6,6 +6,7 @@ import { specTitle } from '../tools/vehicleTool';
 import { saveToLibrary } from '../vehicles/catalog';
 import { respec, TYPICAL } from '../vehicles/spec';
 import { fmt, h, toast } from './dom';
+import { openFitDialog } from './fitDialog';
 import { laneRoute } from '../physics/lane';
 import { ICON } from './icons';
 
@@ -434,9 +435,17 @@ function renderDrive(el: HTMLElement, ed: Editor, e: VehicleEntity) {
       { class: 'muted' },
       d.sync && !ip
         ? 'Para sincronizar, fija el punto de colisión (en el croquis suele estar marcado con una X).'
-        : `Ruta de ${d.path.length} puntos: arrástralos en la escena (los blancos insertan uno nuevo; Supr borra el seleccionado). ${off !== undefined ? `Sale ${Math.round(Math.max(0, -off))} m antes del inicio de la ruta dibujada.`.replace('Sale 0 m antes del inicio de la ruta dibujada.', '') : ''}`,
+        : `Ruta de ${d.path.length} puntos: arrástralos en la escena (los blancos insertan uno nuevo; Supr borra el seleccionado).`,
     ),
   );
+  if (off !== undefined && off < -1)
+    el.append(
+      h(
+        'p',
+        { class: 'warn' },
+        `Para llegar al punto de colisión en t = 0 a esta velocidad tendría que salir ${Math.round(-off)} m antes del primer punto de su ruta, y ese tramo se prolonga en línea recta (puede salirse de la vía). Alarga la ruta hacia atrás o acerca a 0 el inicio de la línea de tiempo.`,
+      ),
+    );
 
   // Acciones del conductor
   el.append(h('div', { class: 'cat-title' }, 'Acciones del conductor'));
@@ -516,5 +525,12 @@ function renderDrive(el: HTMLElement, ed: Editor, e: VehicleEntity) {
       );
     }
   }
+  el.append(
+    h(
+      'button',
+      { class: 'btn primary', title: 'Busca la velocidad y las maniobras con las que la simulación reproduce la posición final, los daños y las huellas observados', onclick: () => openFitDialog(ed, e.id) },
+      'Averiguar velocidad y maniobra…',
+    ),
+  );
   el.append(h('button', { class: 'btn', onclick: () => change(() => delete e.drive) }, 'Quitar movimiento (dejar parado)'));
 }

@@ -153,6 +153,9 @@ class Body {
   controlled = true;
   hadContact = false;
   rested = false;
+  slopeTick = 0;
+  gx = 0;
+  gz = 0;
   path: Path | null = null;
   pathS = 0;
   cruise = 0;
@@ -427,17 +430,8 @@ function drive(b: Body, t: number) {
   if (b.path) {
     const px = b.x - fx * b.b;
     const pz = b.z - fz * b.b;
-    // búsqueda local de la proyección
-    let bestS = b.pathS;
-    let best = Infinity;
-    for (let s = b.pathS - 3; s <= b.pathS + 6; s += 0.25) {
-      const [qx, qz] = b.path.point(s);
-      const dd = (qx - px) ** 2 + (qz - pz) ** 2;
-      if (dd < best) {
-        best = dd;
-        bestS = s;
-      }
-    }
+    // proyección local sobre los tramos vecinos (sin retroceder más de 3 m ni saltar más de 6 m)
+    const bestS = Math.max(b.pathS - 3, Math.min(b.pathS + 6, b.path.projectNear(px, pz, b.pathS)));
     b.pathS = bestS;
     const Ld = Math.max(4, Math.min(25, 0.9 * Math.abs(u) + 3));
     const [tx, tz] = b.path.point(bestS + Ld);
@@ -609,12 +603,14 @@ function tireForces(b: Body, input: SimInput, record: boolean, t: number) {
     }
     wh.sliding = sliding;
   }
-  // pendiente del terreno (componente del peso en el plano)
-  const e = 0.6;
-  const gx = (input.surfaceH(b.x + e, b.z) - input.surfaceH(b.x - e, b.z)) / (2 * e);
-  const gz = (input.surfaceH(b.x, b.z + e) - input.surfaceH(b.x, b.z - e)) / (2 * e);
-  b.fx += -b.m * G * gx;
-  b.fz += -b.m * G * gz;
+  // pendiente del terreno (componente del peso en el plano); varía despacio: cada 10 ms
+  if (b.slopeTick++ % 10 === 0) {
+    const e = 0.6;
+    b.gx = (input.surfaceH(b.x + e, b.z) - input.surfaceH(b.x - e, b.z)) / (2 * e);
+    b.gz = (input.surfaceH(b.x, b.z + e) - input.surfaceH(b.x, b.z - e)) / (2 * e);
+  }
+  b.fx += -b.m * G * b.gx;
+  b.fz += -b.m * G * b.gz;
 }
 
 function contactForces(A: Body, B: Body | null, ob: Obstacle | null, st: PairState, t: number, contacts: SimContact[]) {
@@ -778,6 +774,46 @@ function damageFrom(body: Body, loc: Poly, n: [number, number], crush: number, k
   return { id: `auto-${body.id}-${side}-${Math.round(u0 * 100)}`, side, from: u0, to: u1, depth: Math.min(1.2, crush), hFrom, hTo, note: 'Calculado por la simulación' };
 }
 
+/** Rejilla espacial de obstáculos (se reutiliza mientras no cambie la lista). */
+const GRID_CELL = 8;
+const obstacleGrids = new WeakMap<Obstacle[], Map<number, Obstacle[]>>();
+const cellKey = (i: number, j: number) => (i + 100_000) * 200_003 + (j + 100_000);
+function obstacleGrid(list: Obstacle[]) {
+  let g = obstacleGrids.get(list);
+  if (g) return g;
+  g = new Map();
+  for (const o of list) {
+    const r = Math.hypot(o.hl, o.hw);
+    const i0 = Math.floor((o.cx - r) / GRID_CELL);
+    const i1 = Math.floor((o.cx + r) / GRID_CELL);
+    const j0 = Math.floor((o.cz - r) / GRID_CELL);
+    const j1 = Math.floor((o.cz + r) / GRID_CELL);
+    for (let i = i0; i <= i1; i++)
+      for (let j = j0; j <= j1; j++) {
+        const k = cellKey(i, j);
+        const arr = g.get(k);
+        if (arr) arr.push(o);
+        else g.set(k, [o]);
+      }
+  }
+  obstacleGrids.set(list, g);
+  return g;
+}
+function obstaclesNear(grid: Map<number, Obstacle[]>, x: number, z: number, r: number, out: Set<Obstacle>) {
+  out.clear();
+  const i0 = Math.floor((x - r) / GRID_CELL);
+  const i1 = Math.floor((x + r) / GRID_CELL);
+  const j0 = Math.floor((z - r) / GRID_CELL);
+  const j1 = Math.floor((z + r) / GRID_CELL);
+  for (let i = i0; i <= i1; i++)
+    for (let j = j0; j <= j1; j++) {
+      const arr = grid.get(cellKey(i, j));
+      if (arr) for (const o of arr) out.add(o);
+    }
+  return out;
+}
+const nearSet = new Set<Obstacle>();
+
 function stepOnce(bodies: Body[], input: SimInput, t: number, pairs: Map<string, PairState>, contacts: SimContact[], record: boolean, collisions: boolean) {
   for (const b of bodies) {
     b.fx = 0;
@@ -810,7 +846,7 @@ function stepOnce(bodies: Body[], input: SimInput, t: number, pairs: Map<string,
       if (A.rested && A.kind === 'static') continue;
       const [ax, az] = A.center();
       const rA = Math.hypot(A.L, A.W) / 2;
-      for (const o of input.obstacles) {
+      for (const o of obstaclesNear(obstacleGrid(input.obstacles), ax, az, rA, nearSet)) {
         const r = rA + Math.hypot(o.hl, o.hw);
         if ((ax - o.cx) ** 2 + (az - o.cz) ** 2 > r * r) continue;
         const key = A.id + '#' + o.id;
@@ -874,20 +910,54 @@ function recordFrame(b: Body, t: number) {
 /** Simula un vehículo solo (sin choques) para la sincronización: posición del frontal en t = 0 sobre su ruta. */
 function frontSAtZero(e: VehicleEntity, input: SimInput, s0: number): number {
   const b = new Body(e);
-  initBody(b, input, s0);
+  // hasta la primera acción del conductor circula a velocidad constante por su ruta: ese tramo se
+  // salta (v·t) y solo se simula desde poco antes de la acción
+  const first = Math.min(0, ...(e.drive?.events ?? []).map((ev) => ev.t));
+  const tA = Math.max(input.start, first - 1.5);
+  initBody(b, input, s0 + ((e.drive?.speed ?? 0) / 3.6) * (tA - input.start));
   const bodies = [b];
   const pairs = new Map<string, PairState>();
-  for (let t = input.start; t < 0 - 1e-9; t += DT) stepOnce(bodies, input, t, pairs, [], false, false);
+  for (let t = tA; t < 0 - 1e-9; t += DT) stepOnce(bodies, input, t, pairs, [], false, false);
   const [cx, cz] = b.center();
   const [fx, fz] = b.fwd;
   return b.path!.project(cx + (fx * b.L) / 2, cz + (fz * b.L) / 2);
 }
 
+/**
+ * Velocidad (m/s) que lleva un vehículo en el instante t si circula solo con su conducción
+ * (sin choques). Sirve para pasar de la velocidad en el impacto a la velocidad inicial.
+ */
+export function soloSpeedAt(e: VehicleEntity, input: SimInput, tEnd = 0): number {
+  const b = new Body(e);
+  initBody(b, input, 0);
+  const bodies = [b];
+  const pairs = new Map<string, PairState>();
+  // hasta la primera acción sobre los pedales el conductor mantiene la velocidad: empezar justo antes
+  const pedals = (e.drive?.events ?? []).filter((ev) => ev.action === 'frenar' || ev.action === 'acelerar' || ev.action === 'soltar').map((ev) => ev.t);
+  const t0 = Math.max(input.start, Math.min(tEnd, ...pedals) - 0.5);
+  for (let t = t0; t < tEnd - 1e-9; t += DT) {
+    stepOnce(bodies, input, t, pairs, [], false, false);
+    if (b.rested) return 0;
+  }
+  return b.speed;
+}
+
+/** Resultados de sincronización ya calculados (por suelo: se descartan al cambiar el escenario). */
+const syncCaches = new WeakMap<object, Map<string, number>>();
+
 export function simulate(input: SimInput): SimResult {
   const syncOffsets = new Map<string, number>();
   // 1) Sincronización con el punto de colisión
+  let cache = syncCaches.get(input.surfaceH);
+  if (!cache) syncCaches.set(input.surfaceH, (cache = new Map()));
   for (const e of input.vehicles) {
     if (!e.drive || !e.drive.sync || !input.impact || e.drive.path.length < 2) continue;
+    const key = JSON.stringify([e.spec, e.drive.path, e.drive.speed, e.drive.abs, e.drive.events, input.start, input.impact, input.wet]);
+    const hit = cache.get(key);
+    if (hit !== undefined) {
+      syncOffsets.set(e.id, hit);
+      continue;
+    }
     const path = new Path(e.drive.path);
     const sImp = path.project(input.impact.x, input.impact.z);
     let s0 = sImp - (e.drive.speed / 3.6) * Math.max(0, -input.start) - e.spec.L;
@@ -898,6 +968,8 @@ export function simulate(input: SimInput): SimResult {
       if (Math.abs(err) < 0.02) break;
     }
     syncOffsets.set(e.id, s0);
+    if (cache.size > 500) cache.clear();
+    cache.set(key, s0);
   }
   // 2) Simulación conjunta
   const bodies = input.vehicles.filter((e) => !e.hidden).map((e) => new Body(e));
@@ -912,7 +984,11 @@ export function simulate(input: SimInput): SimResult {
     stepOnce(bodies, input, t, pairs, contacts, step % 5 === 0, true);
     t += DT;
     step++;
-    if (step % REC === 0) for (const b of bodies) recordFrame(b, t);
+    if (step % REC === 0) {
+      for (const b of bodies) recordFrame(b, t);
+      // todo en reposo y sin contactos abiertos: ya no cambiará nada (frameAt mantiene el último estado)
+      if (t > 0 && bodies.every((b) => b.rested) && ![...pairs.values()].some((st) => st.active)) break;
+    }
   }
   // cerrar contactos abiertos
   for (const [key, st] of pairs) {

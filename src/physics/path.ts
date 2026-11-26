@@ -61,6 +61,32 @@ export class Path {
     return [dx / l, dz / l];
   }
 
+  /** Proyección local (cerca de sHint): solo los tramos vecinos; para seguir la ruta paso a paso. */
+  projectNear(x: number, z: number, sHint: number): number {
+    const n = this.xs.length;
+    const i0 = this.seg(sHint);
+    let best = Infinity;
+    let bs = sHint;
+    for (let i = Math.max(0, i0 - 2); i <= Math.min(n - 2, i0 + 3); i++) {
+      const ax = this.xs[i];
+      const az = this.zs[i];
+      const dx = this.xs[i + 1] - ax;
+      const dz = this.zs[i + 1] - az;
+      const l2 = dx * dx + dz * dz || 1;
+      let t = ((x - ax) * dx + (z - az) * dz) / l2;
+      if (i > 0) t = Math.max(0, t);
+      if (i < n - 2) t = Math.min(1, t);
+      const px = ax + dx * t;
+      const pz = az + dz * t;
+      const d = (x - px) ** 2 + (z - pz) ** 2;
+      if (d < best) {
+        best = d;
+        bs = this.ss[i] + t * Math.sqrt(l2);
+      }
+    }
+    return bs;
+  }
+
   /** Proyección de un punto sobre la ruta (incluida su prolongación). */
   project(x: number, z: number): number {
     let best = Infinity;

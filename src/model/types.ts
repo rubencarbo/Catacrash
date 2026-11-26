@@ -300,6 +300,8 @@ export interface Drive {
   events: DriverEvent[];
   /** Mostrar y comparar la posición final observada (x, z, rumbo del vehículo). */
   showFinal?: boolean;
+  /** Longitud de la huella de frenada medida en el lugar antes del impacto (m), si la hay. */
+  skidObs?: number | null;
 }
 
 export interface VehicleEntity extends EntityBase {

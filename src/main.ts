@@ -23,6 +23,8 @@ import { Inspector } from './ui/inspector';
 import { Outliner } from './ui/outliner';
 import { Player } from './anim/player';
 import { TimelineBar } from './ui/timeline';
+import { simulate as __sim } from './physics/sim';
+import { candidateParams as __cp, evaluate as __ev, fit as __fit } from './physics/fit';
 
 async function boot() {
   const saved = await idbGet<{ project: Project; assets: Record<string, string> }>('project');
@@ -80,7 +82,7 @@ async function boot() {
 
   document.getElementById('loading')?.remove();
   if (notice) setTimeout(() => toast(notice), 600);
-  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player };
+  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player, simulate: __sim, fitTools: { evaluate: __ev, candidateParams: __cp, fit: __fit } };
 }
 
 function buildToolbar(ed: Editor) {

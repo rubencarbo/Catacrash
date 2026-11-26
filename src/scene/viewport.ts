@@ -111,7 +111,11 @@ export class Viewport {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Sin dibujar (p. ej. mientras un cálculo largo ocupa el procesador con la escena tapada). */
+  paused = false;
+
   private frame() {
+    if (this.paused) return;
     this.timer.update();
     const dt = Math.min(0.1, this.timer.getDelta());
     this.controls.update();

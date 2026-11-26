@@ -4,7 +4,8 @@ import type { AreaEntity, Entity, LinearEntity, OverlayEntity, PropEntity, River
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { buildVehicle } from './vehicle3d';
 import { buildSkids, type Skids } from '../anim/skids';
-import { frameAt, simulate, type Frame, type Obstacle, type SimResult, type SurfaceKind } from '../physics/sim';
+import { frameAt, simulate, type Frame, type Obstacle, type SimInput, type SimResult, type SurfaceKind } from '../physics/sim';
+import { SurfaceCache } from '../physics/surfaceCache';
 import { linearSamples } from './linear';
 import { areaGeometry, areaShaper, buildArea, type AreaGeom } from './area';
 import { roadFootprint, type Footprint } from './footprint';
@@ -155,6 +156,7 @@ export class World {
 
   rebuildAll() {
     const p = this.store.project;
+    this.surf = null;
     for (const id of [...this.objects.keys()]) this.clearObject(id);
     this.samples.clear();
     this.rbH.clear();
@@ -403,23 +405,37 @@ export class World {
   }
 
   /** Ejecuta la simulación física de todos los vehículos y actualiza sus mallas. */
+  /** Caché de suelo para la simulación (se descarta al reconstruir el escenario). */
+  private surf: SurfaceCache | null = null;
+
+  /** Datos de entrada de la simulación para el estado actual del proyecto. */
+  simInput(vehicles?: VehicleEntity[]): SimInput {
+    const p = this.store.project;
+    const range = p.timeline ?? { start: -4, end: 4 };
+    if (!this.surf)
+      this.surf = new SurfaceCache(
+        (x, z) => this.surfaceHeight(x, z),
+        (x, z) => this.surfaceKind(x, z),
+      );
+    return {
+      vehicles: vehicles ?? p.entities.filter((e): e is VehicleEntity => e.kind === 'vehicle'),
+      start: range.start,
+      end: range.end,
+      impact: p.impact ?? null,
+      wet: p.env.wet,
+      surfaceH: this.surf.height,
+      surfaceKind: this.surf.kind,
+      obstacles: this.obstacles(),
+    };
+  }
+
   runSim() {
     const p = this.store.project;
     const vehicles = p.entities.filter((e): e is VehicleEntity => e.kind === 'vehicle');
-    const range = p.timeline ?? { start: -4, end: 4 };
     if (!vehicles.some((v) => this.isDriven(v))) {
       this.sim = null;
     } else {
-      this.sim = simulate({
-        vehicles,
-        start: range.start,
-        end: range.end,
-        impact: p.impact ?? null,
-        wet: p.env.wet,
-        surfaceH: (x, z) => this.surfaceHeight(x, z),
-        surfaceKind: (x, z) => this.surfaceKind(x, z),
-        obstacles: this.obstacles(),
-      });
+      this.sim = simulate(this.simInput(vehicles));
     }
     for (const v of vehicles) {
       this.clearObject(v.id);

@@ -169,11 +169,11 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
   const leon = specFromRecord({ marca: 'Seat', modelo: 'Leon', generacion: 'Seat Leon III', desde: 2012, hasta: 2016, carroceria: 'Hatchback', masa: 1346, mma: 1910, L: 4271, W: 1816, H: 1435, batalla: 2631, viaD: 1536, viaT: 1510, traccion: 'Tracción delantera', neumaticos: '225/40 R18', fuente: 'https://www.auto-data.net/es/seat-leon-iii-cupra-2.0-tsi-290hp-dsg-22733' });
   const ateca = specFromRecord({ marca: 'Seat', modelo: 'Ateca', generacion: 'Seat Ateca I', desde: 2016, hasta: 2020, carroceria: 'SUV', masa: 1466, mma: 2080, L: 4363, W: 1841, H: 1611, batalla: 2630, viaD: 1572, viaT: 1544, volD: 868, volT: 865, traccion: 'Tracción en todas las ruedas (4x4)', neumaticos: '215/50 R18', fuente: 'https://www.auto-data.net/es/seat-ateca-i-2.0-tsi-190hp-4drive-dsg-51365' });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -4.1, z: 8.3, heading: 318, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
+    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -4.4, z: 7.8, heading: 323, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
     damage: [],
   });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -0.5, z: 5.2, heading: 6, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
+    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -0.2, z: 4.9, heading: 2, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
     damage: [],
   });
 
@@ -193,7 +193,7 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
     const B = E.find((e) => e.kind === 'vehicle' && e.label === 'B') as VehicleEntity;
     // A (sentido sur) se va abriendo hacia el carril contrario en la curva
     A.drive = {
-      path: [at(sImp - 140, 1.75), at(sImp - 90, 1.75), at(sImp - 45, 1.5), at(sImp - 18, 0.2), at(sImp, -1.3), at(sImp + 25, -2.6)],
+      path: [...(sImp - 220 > 0 ? [at(sImp - 220, 1.75)] : []), at(sImp - 140, 1.75), at(sImp - 90, 1.75), at(sImp - 45, 1.5), at(sImp - 18, 0.2), at(sImp, -1.3), at(sImp + 25, -2.6)],
       speed: 85,
       sync: true,
       abs: true,
@@ -202,7 +202,7 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
     };
     // B (sentido norte) por su carril: frena a fondo y da un volantazo a la derecha
     B.drive = {
-      path: [at(sImp + 140, -1.75), at(sImp + 80, -1.75), at(sImp + 20, -1.75), at(sImp, -1.75), at(sImp - 30, -1.75)],
+      path: [...(sImp + 220 < S[S.length - 1].s ? [at(sImp + 220, -1.75)] : []), at(sImp + 140, -1.75), at(sImp + 80, -1.75), at(sImp + 20, -1.75), at(sImp, -1.75), at(sImp - 30, -1.75)],
       speed: 60,
       sync: true,
       abs: true,

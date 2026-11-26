@@ -3,6 +3,7 @@ import type { Editor } from '../editor';
 import { download } from '../io/file';
 import type { VehicleEntity } from '../model/types';
 import { clear, fmt, h, toast } from './dom';
+import { openFitDialog } from './fitDialog';
 
 const ICONS = {
   play: '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg>',
@@ -62,6 +63,7 @@ export class TimelineBar {
       this.playBtn,
       h('button', { class: 'tl-btn', title: 'Ir al final', html: ICONS.end, onclick: () => (player.pause(), player.setTime(player.range().end)) }),
       h('button', { class: 'tl-btn impact', title: 'Ir al instante del impacto (t = 0)', onclick: () => (player.pause(), player.setTime(0)) }, 'Impacto'),
+      h('button', { class: 'tl-btn fit', title: 'Averiguar velocidades y maniobras a partir de lo observado (posición final, daños, huellas)', onclick: () => (player.pause(), openFitDialog(ed)) }, 'Ajustar a los hechos…'),
       this.label,
       startIn,
       h('div', { class: 'tl-track' }, this.marks, this.slider),

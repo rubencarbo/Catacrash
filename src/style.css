@@ -1093,3 +1093,104 @@ textarea {
   color: #81c784;
   margin: 6px 0;
 }
+
+/* ajuste a los hechos */
+.fit-card {
+  width: min(820px, 94vw);
+}
+.fit-veh {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 6px 0;
+}
+.fit-veh.focus {
+  border-color: var(--accent, #4fa3ff);
+}
+.fit-veh-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fit-card .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.fit-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.fit-card input.fit-num {
+  width: 70px;
+  flex: none;
+  display: inline-block;
+}
+.fit-inline {
+  white-space: nowrap;
+}
+.fit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 6px 0;
+}
+.fit-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line-2);
+}
+.fit-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.fit-table tr.off td {
+  opacity: 0.5;
+}
+.fit-table tr.off td:first-child {
+  opacity: 1;
+}
+.fit-card .busy {
+  pointer-events: none;
+  opacity: 0.6;
+}
+.fit-bar {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 10px 0 4px;
+}
+.fit-bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent, #4fa3ff);
+  transition: width 0.2s;
+}
+.fit-errs {
+  font-size: 12px;
+  display: grid;
+  gap: 3px;
+  margin: 6px 0;
+}
+.check.disabled {
+  opacity: 0.55;
+}
+.tl-btn.fit {
+  white-space: nowrap;
+}
+.fit-table tr.derived td {
+  color: var(--muted);
+  border-bottom-style: dashed;
+}

@@ -27,7 +27,15 @@ Simulación física (no pericial, pero físicamente coherente): el movimiento de
 - Daños calculados: lado, tramo y profundidad del aplastamiento de cada contacto deforman la carrocería desde el instante del choque.
 - Conductor: sigue su ruta (generada por el carril o dibujada) a la velocidad indicada y ejecuta sus acciones (frenar, volantazo, acelerar, soltar). Tras el impacto pierde el control. Con «llegar al punto de colisión en t = 0» la app ajusta su salida para que coincida con el punto marcado en el croquis.
 - Resultados por vehículo: velocidad en el impacto, Δv, aplastamiento, fuerza máxima, reposo; y comparación con la posición final observada (contorno discontinuo).
-- `npm test` ejecuta 21 comprobaciones de plausibilidad (distancias de frenada, crucero, curva, choque contra muro y poste, frontal y lateral, conservación del momento, huellas sin ABS).
+- `npm test` ejecuta 21 comprobaciones de plausibilidad (distancias de frenada, crucero, curva, choque contra muro y poste, frontal y lateral, conservación del momento, huellas sin ABS) y una prueba del ajuste automático.
+
+Ajustar a los hechos (reconstrucción inversa): cuando no se conocen las velocidades, la app las averigua. Se marcan los datos observados (posición final de cada vehículo según el croquis, aplastamiento medido en las fotos, longitud de la huella de frenada) y las incógnitas (velocidad, instante e intensidad de la frenada, volantazo). La búsqueda prueba cientos de simulaciones:
+- Con punto de colisión fijado y frenada previa, la incógnita es la velocidad en el impacto y la inicial se deduce de las maniobras (como en una reconstrucción clásica); así las incógnitas quedan casi independientes.
+- Rejilla sobre las velocidades, evolución diferencial (tolera que un pequeño cambio produzca un choque distinto), barridos locales y Nelder–Mead.
+- Resultado: valores propuestos, margen compatible con la precisión de un croquis y, si las hay, otras combinaciones distintas que también cuadran (la solución no siempre es única). Se aplica con un clic y se puede deshacer.
+- El instante de la frenada solo se busca si hay huella medida: la posición final por sí sola no lo determina.
+
+Rendimiento: la simulación usa una caché de altura y firme, una rejilla espacial de obstáculos y se detiene cuando todo está en reposo (≈ 30–40 ms por simulación de 16 s con dos vehículos).
 
 La línea de tiempo (0 = impacto) reproduce la simulación a varias velocidades con las velocidades instantáneas, marca acciones y contactos, ofrece cámaras libre, de seguimiento y del conductor y graba vídeo WebM.
 
