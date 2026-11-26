@@ -1,0 +1,24 @@
+{
+  "name": "catacrash",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Reconstrucción visual de accidentes de tráfico en el navegador (three.js)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:demo": "tsc --noEmit && vite build --mode demo",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "proj4": "^2.23.0",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.4.0",
+    "vite-plugin-singlefile": "^2.3.4"
+  }
+}

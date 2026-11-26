@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Catacrash — Editor de escenarios</title>
+    <meta name="description" content="Reconstrucción visual de accidentes de tráfico: editor de escenarios 3D en el navegador." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f59e0b'/%3E%3Cpath d='M9 26L14 6M23 26L18 6M16 9v3M16 16v3M16 23v2' stroke='%23111' stroke-width='2.4' stroke-linecap='round' fill='none'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar"></header>
+      <nav id="toolbar" aria-label="Herramientas"></nav>
+      <aside id="tool-panel"></aside>
+      <main id="viewport">
+        <div id="toasts" aria-live="polite"></div>
+        <div id="loading">Generando escenario…</div>
+      </main>
+      <aside id="side">
+        <section id="outliner"></section>
+        <section id="inspector"></section>
+      </aside>
+      <footer id="status"></footer>
+    </div>
+    <div id="small-screen">Catacrash está pensado para un ordenador de escritorio: abre esta página en una pantalla de al menos 1100 px de ancho.</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
