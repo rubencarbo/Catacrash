@@ -193,7 +193,7 @@ button {
   display: inline-grid;
   place-items: center;
   width: 32px;
-  height: 32px;
+  height: 36px;
   border-radius: var(--radius);
   border: 1px solid transparent;
   background: transparent;
@@ -566,7 +566,7 @@ input[type='range'] {
 /* avisos */
 #toasts {
   position: absolute;
-  top: 12px;
+  top: 58px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -861,14 +861,13 @@ textarea {
   right: 76px;
   bottom: 10px;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  background: #15171ae8;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 6px;
+  background: #15171aed;
   border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border-radius: 10px;
   z-index: 5;
-  flex-wrap: wrap;
 }
 .timeline.recording {
   border-color: var(--danger);
@@ -1475,7 +1474,7 @@ textarea {
 }
 .nav-btn {
   width: 44px;
-  height: 32px;
+  height: 36px;
   display: grid;
   place-items: center;
   background: transparent;
@@ -1859,4 +1858,301 @@ textarea {
   padding: 4px 12px;
   cursor: pointer;
   font-size: 12px;
+}
+
+/* secuencia del accidente */
+.tl-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tl-spacer {
+  flex: 1;
+}
+.tl-btn.fold svg {
+  transition: transform 0.15s;
+}
+.timeline.folded .tl-btn.fold svg {
+  transform: rotate(180deg);
+}
+.tl-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tl-row {
+  display: grid;
+  grid-template-columns: 122px 1fr 86px;
+  align-items: center;
+  gap: 8px;
+}
+.tl-lab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  min-width: 0;
+}
+.tl-lab.start span,
+.tl-end span {
+  font-weight: 700;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.tl-lab .tl-range,
+.tl-end .tl-range {
+  width: 56px;
+}
+.tl-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tl-lab.veh {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tl-lab.veh:hover,
+.tl-lab.veh.sel {
+  border-color: var(--line-2);
+  background: #ffffff0d;
+}
+.tl-lab.veh.sel {
+  border-color: var(--accent);
+}
+.tl-lab .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.tl-lane {
+  position: relative;
+  height: 24px;
+  border-radius: 5px;
+  background: #ffffff09;
+  border: 1px solid var(--line);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.tl-lane.ruler {
+  height: 22px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 0;
+}
+.tl-lane.veh.sel {
+  border-color: #f59e0b88;
+  background: #f59e0b0d;
+}
+.tl-tick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 5px;
+  background: var(--line-2);
+}
+.tl-tick.major {
+  height: 9px;
+  background: var(--muted);
+}
+.tl-tick-l {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.tl-zero {
+  position: absolute;
+  top: -1px;
+  transform: translateX(-50%);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #fff;
+  background: #d32f2f;
+  padding: 1px 5px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.tl-zero::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 7px;
+  background: #d32f2f;
+}
+.tl-head {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 6px #f59e0b;
+  pointer-events: none;
+  z-index: 3;
+}
+.tl-lane.ruler .tl-head::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -5px;
+  border: 6px solid transparent;
+  border-top-color: var(--accent);
+}
+.tl-spark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.tl-spark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.tl-mk {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  z-index: 2;
+  user-select: none;
+}
+.tl-mk.hit {
+  color: #ff7043;
+  font-size: 15px;
+  pointer-events: none;
+}
+.tl-mk.rest {
+  background: #3a3f46;
+  color: #cfd5dc;
+  font-size: 9.5px;
+  pointer-events: none;
+}
+.tl-mk.drag {
+  cursor: grab;
+  border: 1px solid #0006;
+  box-shadow: 0 1px 4px #0008;
+}
+.tl-mk.drag:active {
+  cursor: grabbing;
+}
+.tl-mk.act.brake {
+  background: #e53935;
+  color: #fff;
+}
+.tl-mk.act.steer {
+  background: #1e88e5;
+  color: #fff;
+}
+.tl-mk.act.gas {
+  background: #43a047;
+  color: #fff;
+}
+.tl-mk.act.coast {
+  background: #757575;
+  color: #fff;
+}
+.tl-mk.pin {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.tl-mk[data-t]::after {
+  content: attr(data-t);
+  position: absolute;
+  bottom: 120%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #000c;
+  color: #fff;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.tl-hint {
+  font-size: 10.5px;
+  color: var(--muted);
+  padding-left: 130px;
+}
+.tl-menu {
+  position: absolute;
+  min-width: 220px;
+  background: #1c1f23;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  z-index: 8;
+  box-shadow: 0 10px 30px #000a;
+}
+.tl-menu-t {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 8px;
+}
+.tl-menu button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.tl-menu button:hover {
+  background: #f59e0b22;
+  color: var(--accent);
+}
+.rot-handle {
+  position: absolute;
+  display: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 3px 12px #000a;
+  cursor: alias;
+  z-index: 6;
+  touch-action: none;
+}
+.rot-handle:hover {
+  transform: scale(1.1);
+}
+.tl-lane.veh.tall {
+  height: 36px;
+}
+.tl-lane.veh .tl-mk {
+  transition: top 0.1s;
 }

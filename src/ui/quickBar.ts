@@ -23,7 +23,20 @@ const IC = {
  */
 export function buildQuickBar(ed: Editor, host: HTMLElement) {
   const el = h('div', { class: 'quick-bar' });
-  host.append(el);
+  // icono de rotación: se arrastra alrededor del vehículo para girarlo
+  const rot = h('button', {
+    class: 'rot-handle',
+    title: 'Girar: mantén pulsado y arrastra alrededor (se ajusta a la vía; Mayús: pasos de 15°)',
+    html: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/></svg>',
+    onpointerdown: (e: Event) => {
+      const pe = e as PointerEvent;
+      if (pe.button !== 0) return;
+      pe.preventDefault();
+      pe.stopPropagation();
+      ed.beginRotate(pe);
+    },
+  });
+  host.append(el, rot);
   let shownFor = '';
   const render = () => {
     clear(el);
@@ -32,8 +45,10 @@ export function buildQuickBar(ed: Editor, host: HTMLElement) {
     shownFor = '';
     if (!e || (e.kind !== 'vehicle' && e.kind !== 'prop') || (ed.tool.id !== 'select' && ed.tool.id !== 'vehicle')) {
       el.style.display = 'none';
+      rot.style.display = 'none';
       return;
     }
+    rot.style.display = 'grid';
     shownFor = e.id;
     const b = (icon: string, title: string, fn: () => void, label?: string) => h('button', { class: 'qb-btn' + (label ? ' text' : ''), title, html: icon + (label ? `<span>${label}</span>` : ''), onclick: fn });
     el.append(
@@ -63,6 +78,7 @@ export function buildQuickBar(ed: Editor, host: HTMLElement) {
     const obj = ed.world.objects.get(shownFor);
     if (!obj || !obj.visible) {
       el.style.visibility = 'hidden';
+      rot.style.visibility = 'hidden';
       return;
     }
     const box = new THREE.Box3().setFromObject(obj);
@@ -75,7 +91,8 @@ export function buildQuickBar(ed: Editor, host: HTMLElement) {
     const [, yBot] = toScreen(v.set((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2));
     // a un lado del vehículo que no tape la flecha de giro del dial
     const knob = ed.dial.knobWorld();
-    const [, ky] = knob ? toScreen(knob) : [0, yTop - 100];
+    const ks = knob ? toScreen(knob.clone()) : null;
+    const ky = ks ? ks[1] : yTop - 100;
     const cy = (yTop + yBot) / 2;
     const below = ky < cy;
     const off = zc > 1 || x < 0 || x > r.width || cy < 0 || cy > r.height;
@@ -86,5 +103,16 @@ export function buildQuickBar(ed: Editor, host: HTMLElement) {
     const ya = Math.min(yTop, yBot, ky) - hgt - 24;
     el.style.left = `${Math.min(r.width - w - 8, Math.max(8, x - w / 2))}px`;
     el.style.top = `${Math.min(r.height - hgt - 8, Math.max(8, below ? yb : ya))}px`;
+    // icono de rotación más allá de la punta de la flecha del dial
+    if (ks) {
+      const [kx, ky2] = ks;
+      const [cx2, cy2] = toScreen(obj.position.clone());
+      const dx = kx - cx2;
+      const dy = ky2 - cy2;
+      const d = Math.hypot(dx, dy) || 1;
+      rot.style.visibility = off ? 'hidden' : 'visible';
+      rot.style.left = `${kx + (dx / d) * 30 - 17}px`;
+      rot.style.top = `${ky2 + (dy / d) * 30 - 17}px`;
+    } else rot.style.visibility = 'hidden';
   });
 }

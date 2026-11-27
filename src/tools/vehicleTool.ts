@@ -154,6 +154,9 @@ export function vehicleTool(ed: Editor): Tool {
     icon: ICON.car,
     key: 'h',
     hint: 'Elige un vehículo y haz clic donde va (se alinea solo con el carril) o pulsa y arrastra en el sentido de la marcha · Q/E: girar · Mayús: sin alinear',
+    busy() {
+      return !!pending || !!applyTo;
+    },
     activate() {
       loadLibrary().then((l) => {
         library = l;

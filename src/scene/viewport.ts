@@ -62,12 +62,15 @@ export class Viewport {
     this.controls.minDistance = 1;
     this.controls.maxDistance = 1500;
     this.controls.zoomToCursor = true;
-    let style: MouseStyle = 'mapa';
+    // por defecto: izquierdo gira, central (y derecho) desplaza la escena, rueda acerca
+    let style: MouseStyle = '3d';
     try {
-      if (localStorage.getItem('catacrash.mouse') === '3d') style = '3d';
+      if (localStorage.getItem('catacrash.raton') === 'mapa') style = 'mapa';
     } catch {
       /* sin almacenamiento */
     }
+    // el botón central no debe activar el desplazamiento automático del navegador
+    this.renderer.domElement.addEventListener('mousedown', (e) => e.button === 1 && e.preventDefault());
     this.setMouseStyle(style);
     this.installKeys();
     // si el usuario toma el control, se interrumpe cualquier viaje de cámara
@@ -210,16 +213,16 @@ export class Viewport {
   mouseStyle: MouseStyle = 'mapa';
 
   /**
-   * Manejo del ratón. «mapa» (como Google Maps): arrastrar con el izquierdo desplaza, con el
-   * derecho gira e inclina, la rueda acerca hacia el cursor. «3d»: el izquierdo gira, el derecho desplaza.
+   * Manejo del ratón. «3d» (por defecto): el izquierdo gira e inclina, el central (o el derecho)
+   * desplaza la escena y la rueda acerca hacia el cursor. «mapa»: el izquierdo desplaza y el derecho gira.
    */
   setMouseStyle(style: MouseStyle) {
     this.mouseStyle = style;
     this.controls.mouseButtons =
-      style === 'mapa' ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE } : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+      style === 'mapa' ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE } : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
     this.controls.touches = style === 'mapa' ? { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE } : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
     try {
-      localStorage.setItem('catacrash.mouse', style);
+      localStorage.setItem('catacrash.raton', style);
     } catch {
       /* sin almacenamiento */
     }

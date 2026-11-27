@@ -35,16 +35,16 @@ export function buildNavWidget(ed: Editor, host: HTMLElement) {
       ed.refreshOptions?.();
       toast(
         vp.mouseStyle === 'mapa'
-          ? 'Ratón tipo mapa: arrastrar con el botón izquierdo desplaza, con el derecho gira; la rueda acerca.'
-          : 'Ratón tipo 3D: arrastrar con el botón izquierdo gira, con el derecho desplaza; la rueda acerca.',
+          ? 'Ratón tipo mapa: el botón izquierdo desplaza la escena, el derecho gira; la rueda acerca.'
+          : 'Ratón normal: el botón izquierdo gira, el central (o el derecho) desplaza la escena; la rueda acerca.',
       );
     },
   });
   const updMouse = () =>
     (mouseBtn.title =
       vp.mouseStyle === 'mapa'
-        ? 'Ratón tipo mapa (izquierdo: desplazar · derecho: girar · rueda: acercar). Clic para cambiar a tipo 3D'
-        : 'Ratón tipo 3D (izquierdo: girar · derecho: desplazar · rueda: acercar). Clic para cambiar a tipo mapa');
+        ? 'Ratón tipo mapa (izquierdo: desplazar · derecho: girar · rueda: acercar). Clic para volver al normal'
+        : 'Ratón normal (izquierdo: girar · central o derecho: desplazar · rueda: acercar). Clic para cambiar a tipo mapa');
   updMouse();
   const el = h(
     'div',

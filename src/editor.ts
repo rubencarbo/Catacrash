@@ -37,6 +37,8 @@ export interface Tool {
   rightClick?(ev: ToolEvent): void;
   onKey?(e: KeyboardEvent): boolean;
   options?(el: HTMLElement): void;
+  /** La herramienta está a mitad de una acción propia (p. ej. colocando un vehículo nuevo). */
+  busy?(): boolean;
 }
 
 interface HandleDrag {
@@ -186,8 +188,8 @@ export class Editor {
         return;
       }
     }
-    // arrastrar un vehículo u objeto lo mueve (y lo selecciona si no lo estaba)
-    if (this.tool.id === 'select') {
+    // mantener pulsado sobre un vehículo u objeto y arrastrar lo mueve (y lo selecciona si no lo estaba)
+    if (this.tool.id === 'select' || (this.tool.id === 'vehicle' && !this.tool.busy?.())) {
       const id = pickEntity(this, ev);
       const ent = id ? this.store.get(id) : null;
       if (ent && (ent.kind === 'vehicle' || ent.kind === 'prop') && !this.gizmoOn) {
@@ -207,6 +209,7 @@ export class Editor {
     this.player?.pause();
     this.store.begin();
     this.dialDrag = { id, mode, grab: new THREE.Vector2(g ? obj.position.x - g.x : 0, g ? obj.position.z - g.z : 0), x: pe.clientX, y: pe.clientY, moved: false, h: pose.h };
+    this.vp.renderer.domElement.style.cursor = mode === 'move' ? 'grabbing' : 'alias';
     this.capture();
   }
 
@@ -256,10 +259,41 @@ export class Editor {
     }
   }
 
+  private lastHover = 0;
+  /** Cursor de «agarrar» sobre vehículos y objetos, y de giro sobre la flecha del dial. */
+  private hoverCursor(ev: ToolEvent, e: PointerEvent) {
+    const cv = this.vp.renderer.domElement;
+    if (e.buttons) return;
+    const now = performance.now();
+    if (now - this.lastHover < 70) return;
+    this.lastHover = now;
+    const canMove = this.tool.id === 'select' || (this.tool.id === 'vehicle' && !this.tool.busy?.());
+    if (!canMove || this.gizmoOn) {
+      cv.style.cursor = '';
+      return;
+    }
+    if (this.dial.target && this.dial.pick(ev.ray)) {
+      cv.style.cursor = 'alias';
+      return;
+    }
+    const id = pickEntity(this, ev);
+    const ent = id ? this.store.get(id) : null;
+    cv.style.cursor = ent && (ent.kind === 'vehicle' || ent.kind === 'prop') ? 'grab' : '';
+  }
+
+  /** Empieza a girar el objeto seleccionado desde un control externo (icono de rotación). */
+  beginRotate(pe: PointerEvent) {
+    const id = this.store.selection?.id;
+    if (!id) return;
+    this.startDial(id, 'rot', this.event(pe), pe);
+    this.dialDrag!.moved = true;
+  }
+
   private endDial() {
     const d = this.dialDrag!;
     this.dialDrag = null;
     this.showTip(null);
+    this.vp.renderer.domElement.style.cursor = '';
     const e = this.store.get(d.id);
     const obj = this.world.objects.get(d.id);
     if (!d.moved || !e || !obj) {
@@ -282,7 +316,10 @@ export class Editor {
     for (const l of this.cursorListeners) l(ev.ground);
     if (this.dialDrag) this.dragDial(ev);
     else if (this.handleDrag) this.dragHandle(ev);
-    else this.tool.move?.(ev);
+    else {
+      this.tool.move?.(ev);
+      this.hoverCursor(ev, e);
+    }
   }
 
   private onUp(e: PointerEvent) {

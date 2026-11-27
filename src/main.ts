@@ -148,7 +148,7 @@ function buildToolPanel(ed: Editor) {
               ]
             : [
                 ['Arrastrar (izq.)', 'Girar e inclinar'],
-                ['Arrastrar (der.)', 'Desplazar'],
+                ['Arrastrar (central)', 'Desplazar la escena'],
                 ['Rueda', 'Acercar hacia el cursor'],
                 ['Doble clic', 'Ir a ese punto'],
                 ['Flechas · Q/E', 'Desplazar · girar'],
