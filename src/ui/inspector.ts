@@ -367,8 +367,21 @@ export class Inspector {
       ['0', 'Secundaria'],
     ])
       prio.append(h('option', { value: v, selected: Number(v) === (e.priority ?? 1) }, l));
+    const lim = h('input', {
+      type: 'number',
+      min: 0,
+      step: 10,
+      placeholder: 'según señales',
+      value: e.limit ?? '',
+      title: 'Límite genérico de la vía; las señales R-301 colocadas lo sustituyen donde las haya',
+      onchange: (ev: Event) => {
+        const v = Number((ev.target as HTMLInputElement).value);
+        this.change(e, () => (e.limit = v > 0 ? v : null));
+      },
+    });
     el.append(
       h('label', { class: 'field' }, h('span', {}, 'Jerarquía en cruces'), prio),
+      h('label', { class: 'field' }, h('span', {}, 'Velocidad máxima'), lim, h('output', {}, 'km/h')),
       h('div', { class: 'panel-title' }, 'Sección transversal'),
     );
 
