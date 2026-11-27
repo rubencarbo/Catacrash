@@ -94,7 +94,14 @@ async function boot() {
   installPasteImage(ed);
   document.getElementById('loading')?.remove();
   // primera visita: elegir cómo empezar (detrás queda el ejemplo)
-  if (!saved?.project?.terrain?.base) setTimeout(() => openStartWizard(ed, { first: true, openFile: () => openFileWith(store) }), 400);
+  let seen = false;
+  try {
+    seen = localStorage.getItem('catacrash.inicio') === '1';
+    localStorage.setItem('catacrash.inicio', '1');
+  } catch {
+    /* sin almacenamiento */
+  }
+  if (!seen) setTimeout(() => openStartWizard(ed, { first: true, exampleLoaded: !usable, openFile: () => openFileWith(store) }), 400);
   if (notice) setTimeout(() => toast(notice), 600);
   (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player, simulate: __sim, fitTools: { evaluate: __ev, candidateParams: __cp, fit: __fit }, analyze: __an };
 }

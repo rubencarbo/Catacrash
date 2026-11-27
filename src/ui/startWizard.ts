@@ -19,6 +19,8 @@ const CARD_ICONS = {
 interface Opts {
   /** Primera vez que se abre la aplicación (detrás está el ejemplo). */
   first?: boolean;
+  /** Lo que hay cargado es el ejemplo. */
+  exampleLoaded?: boolean;
   openFile?: () => void;
 }
 
@@ -286,7 +288,7 @@ export function openStartWizard(ed: Editor, opts: Opts = {}) {
     clear(card);
     const c = (key: keyof typeof CARD_ICONS, title: string, text: string, fn: () => void, cls = '') => h('button', { class: 'start-opt ' + cls, onclick: fn }, h('span', { class: 'so-icon', html: CARD_ICONS[key] }), h('strong', {}, title), h('span', {}, text));
     card.append(
-      h('div', { class: 'start-head' }, h('h2', {}, opts.first ? 'Bienvenido a Catacrash' : 'Nuevo escenario'), h('p', { class: 'muted' }, '¿Cómo quieres empezar? Todo se puede cambiar después.')),
+      h('div', { class: 'start-head' }, h('h2', {}, opts.first ? (opts.exampleLoaded ? 'Bienvenido a Catacrash' : 'Novedad: empieza un escenario en segundos') : 'Nuevo escenario'), h('p', { class: 'muted' }, '¿Cómo quieres empezar? Todo se puede cambiar después.')),
       h(
         'div',
         { class: 'start-grid' },
@@ -295,8 +297,8 @@ export function openStartWizard(ed: Editor, opts: Opts = {}) {
         c('photo', 'Fotos del lugar', 'Fotos a pie de calle o capturas de Street View, encajadas en 3D.', views.photo),
         c('sketch', 'Croquis a mano', 'El dibujo del atestado como plantilla transparente.', views.sketch),
         c('geo', 'Lugar real (España)', 'Coordenadas o dirección: ortofoto y relieve del IGN.', views.geo),
-        c('demo', opts.first ? 'Ver el ejemplo' : 'Abrir el ejemplo', 'Una colisión frontal en curva ya reconstruida, para explorar.', () => {
-          if (!opts.first) {
+        c('demo', opts.exampleLoaded ? 'Ver el ejemplo' : 'Abrir el ejemplo', 'Una colisión frontal en curva ya reconstruida, para explorar.', () => {
+          if (!opts.exampleLoaded) {
             const d = demoProject();
             ed.store.load(d.project, d.assets);
           }
@@ -309,7 +311,7 @@ export function openStartWizard(ed: Editor, opts: Opts = {}) {
         { class: 'start-foot' },
         opts.openFile ? h('button', { class: 'btn', onclick: () => (close(), opts.openFile!()) }, 'Abrir un escenario guardado…') : null,
         h('span', { class: 'muted' }, 'Consejo: en cualquier momento puedes pegar (Ctrl+V) una captura o una foto y la app te preguntará qué es.'),
-        h('button', { class: 'btn', onclick: close }, opts.first ? 'Seguir con el ejemplo' : 'Cancelar'),
+        h('button', { class: 'btn', onclick: close }, opts.first ? (opts.exampleLoaded ? 'Seguir con el ejemplo' : 'Seguir con el escenario actual') : 'Cancelar'),
       ),
     );
   };
