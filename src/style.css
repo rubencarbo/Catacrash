@@ -2425,3 +2425,62 @@ textarea {
 .guide-banner button {
   pointer-events: auto;
 }
+
+/* lectura del croquis */
+.sketch-card {
+  width: min(820px, 94vw);
+}
+.sketch-card p {
+  line-height: 1.45;
+}
+.sketch-summary {
+  background: var(--panel-2, #0003);
+  border-left: 3px solid var(--accent);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+.sketch-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 18px;
+}
+@media (max-width: 640px) {
+  .sketch-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.sketch-sec {
+  margin: 8px 0;
+}
+.sketch-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+.sketch-status {
+  text-align: center;
+  color: var(--muted);
+}
+.sketch-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+  margin: 10px 0 4px;
+}
+.sketch-bar i {
+  display: block;
+  height: 100%;
+  width: 35%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: sketch-slide 1.4s ease-in-out infinite;
+}
+@keyframes sketch-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(290%);
+  }
+}

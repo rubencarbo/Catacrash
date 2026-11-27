@@ -220,6 +220,21 @@ export function overlayTool(ed: Editor): Tool {
             },
             'Calibrar escala del calco seleccionado',
           ),
+          h(
+            'button',
+            {
+              class: 'btn primary',
+              title: 'La IA lee el dibujo y monta las vías, los vehículos con sus posiciones, el punto de colisión y las señales',
+              onclick: async () => {
+                const url = ed.store.assets.get(sel.asset);
+                if (!url) return;
+                const blob = await (await fetch(url)).blob();
+                const { openSketchReader } = await import('../ui/sketchDialog');
+                openSketchReader(ed, blob, { name: sel.name.replace(/^Croquis:\s*/, ''), replaces: true });
+              },
+            },
+            'Leer este croquis con IA y montar la escena',
+          ),
         );
       }
 

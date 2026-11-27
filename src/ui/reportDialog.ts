@@ -293,6 +293,9 @@ export function openReport(ed: Editor) {
     }
     const sec = (title: string, ...kids: (Node | string | null)[]) => h('section', { class: 'report-sec' }, h('h3', {}, title), ...kids);
 
+    // Lo que dice el croquis (si se leyó)
+    const notes = ed.store.project.notes?.trim();
+    if (notes) card.append(sec('Según el croquis', ...notes.split('\n').map((l) => h('p', {}, l))));
     // Resumen
     card.append(sec('Conclusión', h('ul', { class: 'report-list' }, ...an.conclusion.map((c) => h('li', {}, c))), h('p', { class: 'muted' }, an.conditions.join(' '))));
 

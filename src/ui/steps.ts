@@ -5,6 +5,19 @@ import { clear, h } from './dom';
 import { openFitDialog } from './fitDialog';
 import { openReport } from './reportDialog';
 import { openStartWizard } from './startWizard';
+import { openSketchReader } from './sketchDialog';
+
+/** Abre el selector de archivos para una imagen. */
+function pickImage(fn: (b: Blob) => void) {
+  const i = h('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+  i.onchange = () => {
+    const f = i.files?.[0];
+    if (f) fn(f);
+    i.remove();
+  };
+  document.body.append(i);
+  i.click();
+}
 
 interface Step {
   id: string;
@@ -66,11 +79,12 @@ export function buildSteps(ed: Editor, host: HTMLElement, openFile: () => void) 
       next: 'Añade el croquis o las fotos',
       body: () => [
         para('<b>Opcional, pero ayuda mucho</b>: sirven de guía para dibujar el lugar y colocar los vehículos.'),
-        para('• <b>Croquis del atestado</b> o captura aérea: se pone en el suelo como un calco (el papel blanco se vuelve transparente). Después marcas dos puntos de una medida conocida para ponerlo a escala.<br>• <b>Fotos del lugar</b> o de Street View: haces clic donde se tomó y la giras hasta que encaje con la escena.<br>• También puedes <b>pegar</b> cualquier imagen con Ctrl+V.'),
+        para('• <b>Croquis del atestado</b>: la app <b>lo lee</b> (vías, vehículos con sus posiciones 1·2·3 o PF, punto de colisión, STOP, textos) y monta la escena a escala, con el croquis debajo como calco para comparar.<br>• <b>Captura aérea</b>: se pone en el suelo como un calco; marcas dos puntos de una medida conocida para ponerlo a escala.<br>• <b>Fotos del lugar</b> o de Street View: haces clic donde se tomó y la giras hasta que encaje con la escena.<br>• También puedes <b>pegar</b> cualquier imagen con Ctrl+V.'),
         h(
           'div',
           { class: 'row wrap' },
-          btn('Añadir croquis o captura', () => ed.setTool('overlay'), true),
+          btn('Leer un croquis', () => pickImage((b) => openSketchReader(ed, b, { replaces: p().entities.length > 0 })), true),
+          btn('Añadir captura como calco', () => ed.setTool('overlay')),
           btn('Añadir foto del lugar', () => ed.setTool('photo')),
           btn('No tengo · saltar', () => (refsSkipped = true)),
         ),

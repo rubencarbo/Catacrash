@@ -436,6 +436,8 @@ export interface Project {
   timeline?: Timeline;
   /** Punto de colisión previsto (para sincronizar a los vehículos en t = 0). */
   impact?: { x: number; z: number } | null;
+  /** Notas del caso (p. ej. lo leído en el croquis: resumen, causa, sentidos). */
+  notes?: string;
 }
 
 export interface Selection {

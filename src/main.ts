@@ -103,7 +103,7 @@ async function boot() {
   }
   if (!seen) setTimeout(() => openStartWizard(ed, { first: true, exampleLoaded: !usable, openFile: () => openFileWith(store) }), 400);
   if (notice) setTimeout(() => toast(notice), 600);
-  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player, simulate: __sim, fitTools: { evaluate: __ev, candidateParams: __cp, fit: __fit }, analyze: __an };
+  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player, simulate: __sim, fitTools: { evaluate: __ev, candidateParams: __cp, fit: __fit }, analyze: __an, buildSketch: (r: unknown, w: number, hh: number, url: string | null) => import('./ui/sketchDialog').then(async (m) => m.buildSketchScene(ed, (await import('./sketch/schema')).normalizeSketch(r), w, hh, url)) };
 }
 
 function buildToolbar(ed: Editor) {

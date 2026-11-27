@@ -5,6 +5,7 @@ import { ROAD_KINDS, TEMPLATES, templateProject, type RoadKind, type TemplateId 
 import { loadRealRelief } from '../tools/elevationPanel';
 import { addOverlay, loadOrtho, readImage } from '../tools/overlayTool';
 import { clear, h, toast } from './dom';
+import { openSketchReader } from './sketchDialog';
 
 const I = (d: string) => `<svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 const CARD_ICONS = {
@@ -139,7 +140,20 @@ export function openStartWizard(ed: Editor, opts: Opts = {}) {
       card.append(back(), h('h2', {}, 'Empezar con una carretera tipo'), h('p', { class: 'muted' }, 'Elige el trazado más parecido al lugar: después puedes mover sus puntos, cambiar la sección, añadir carriles, aceras, muros o árboles.'), nameField(), tplPicker(), h('div', { class: 'row end' }, h('button', { class: 'btn primary big', onclick: () => start(tpl, () => toast('Escenario creado. Siguiente: añade el croquis o las fotos (paso 2) o coloca los vehículos (paso 3), arriba.', 'info', 7000)) }, 'Crear escenario')));
     },
     air: () => aerial(false),
-    sketch: () => aerial(true),
+    sketch: () => {
+      clear(card);
+      card.append(
+        back(),
+        h('h2', {}, 'A partir del croquis dibujado a mano'),
+        h('p', { class: 'muted' }, 'Foto o escaneo del croquis del atestado. La app lo lee: reconoce las vías y el cruce, cada vehículo con sus posiciones (1, 2, 3 o PF), el punto de colisión (PC), las señales y los textos, y monta el escenario a escala con el croquis debajo como calco.'),
+        nameField(),
+        dropZone('Croquis (foto o escaneo)', (b) => {
+          close();
+          openSketchReader(ed, b, { name: caseName.trim() || undefined });
+        }),
+        h('p', { class: 'muted' }, h('button', { class: 'btn small', onclick: () => aerial(true) }, 'Prefiero usarlo solo como calco y calibrarlo yo'), ''),
+      );
+    },
     photo: () => {
       clear(card);
       let photo: { b: Blob; name: string } | null = null;
@@ -295,7 +309,7 @@ export function openStartWizard(ed: Editor, opts: Opts = {}) {
         c('tpl', 'Carretera tipo', 'Recta, curva, cruce en T o en X, glorieta… lista en un clic.', views.tpl, 'primary'),
         c('air', 'Captura aérea', 'Google Maps (satélite), ortofoto o plano. Se calca y se pone a escala.', views.air),
         c('photo', 'Fotos del lugar', 'Fotos a pie de calle o capturas de Street View, encajadas en 3D.', views.photo),
-        c('sketch', 'Croquis a mano', 'El dibujo del atestado como plantilla transparente.', views.sketch),
+        c('sketch', 'Croquis a mano', 'La app lee el dibujo del atestado y monta la escena.', views.sketch),
         c('geo', 'Lugar real (España)', 'Coordenadas o dirección: ortofoto y relieve del IGN.', views.geo),
         c('demo', opts.exampleLoaded ? 'Ver el ejemplo' : 'Abrir el ejemplo', 'Una colisión frontal en curva ya reconstruida, para explorar.', () => {
           if (!opts.exampleLoaded) {
@@ -350,7 +364,7 @@ export function installPasteImage(ed: Editor) {
           'div',
           { class: 'start-grid three' },
           h('button', { class: 'start-opt', onclick: () => asOverlay(false) }, h('span', { class: 'so-icon', html: CARD_ICONS.air }), h('strong', {}, 'Vista aérea'), h('span', {}, 'Captura de mapa u ortofoto → calco en el suelo')),
-          h('button', { class: 'start-opt', onclick: () => asOverlay(true) }, h('span', { class: 'so-icon', html: CARD_ICONS.sketch }), h('strong', {}, 'Croquis'), h('span', {}, 'Dibujo en papel → calco transparente')),
+          h('button', { class: 'start-opt', onclick: () => (ov.remove(), openSketchReader(ed, blob, { replaces: ed.store.project.entities.length > 0 })) }, h('span', { class: 'so-icon', html: CARD_ICONS.sketch }), h('strong', {}, 'Croquis'), h('span', {}, 'Dibujo del accidente → la app lo lee y monta la escena')),
           h('button', { class: 'start-opt', onclick: () => (ov.remove(), ed.preparePhoto?.(blob, 'Foto pegada')) }, h('span', { class: 'so-icon', html: CARD_ICONS.photo }), h('strong', {}, 'Foto del lugar'), h('span', {}, 'A pie de calle o Street View → foto de referencia')),
         ),
         h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: () => ov.remove() }, 'Cancelar')),
