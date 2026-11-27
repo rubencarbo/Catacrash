@@ -5,6 +5,7 @@ import type { SpecKey, VehicleEntity, VehicleSpec, VehicleType } from '../model/
 import { buildVehicle } from '../scene/vehicle3d';
 import { fmt, h, toast } from '../ui/dom';
 import { ICON } from '../ui/icons';
+import { headingText, roadHeadings } from './dial';
 import { loadCatalog, loadLibrary, removeFromLibrary, searchCatalog, type SavedVehicle } from '../vehicles/catalog';
 import { completeSpec, genericSpec, parsePastedSpec, specFromRecord, TYPICAL, type CatalogRecord } from '../vehicles/spec';
 import { pickEntity } from './basic';
@@ -105,6 +106,36 @@ export function vehicleTool(ed: Editor): Tool {
     return diff > 90 ? (hdg + 180) % 360 : hdg;
   };
 
+  /** Coloca el vehículo elegido en (x, z) con el rumbo actual. */
+  let aim: { x: number; z: number; dragged: boolean } | null = null;
+  let placedAt = 0;
+  const place = (x: number, z: number) => {
+    if (!pending) return;
+    const n = ed.store.project.entities.filter((e) => e.kind === 'vehicle').length;
+      const label = nextLabel(ed);
+      const e: VehicleEntity = {
+        id: newId('v'),
+        kind: 'vehicle',
+        name: `${label} · ${specTitle(pending)}`,
+        label,
+        spec: structuredClone(pending),
+        x,
+        z,
+        heading,
+        color: pending.tipo === 'peaton' ? '#3d6e9e' : COLORS[n % COLORS.length],
+        plate: '',
+        occupants: pending.tipo === 'peaton' ? 0 : 1,
+        cargo: 0,
+        damage: [],
+        photos: [],
+      };
+      ed.store.add(e);
+      pending = null;
+      clearGhost();
+      ed.select(e.id);
+      ed.refreshOptions?.();
+  };
+
   const doSearch = async () => {
     try {
       const list = await loadCatalog();
@@ -122,7 +153,7 @@ export function vehicleTool(ed: Editor): Tool {
     label: 'Vehículos y peatones',
     icon: ICON.car,
     key: 'h',
-    hint: 'Elige un vehículo y haz clic para colocarlo · Q/E: girar · Mayús: no alinear con la vía · G/R: mover/girar el seleccionado',
+    hint: 'Elige un vehículo y haz clic donde va (se alinea solo con el carril) o pulsa y arrastra en el sentido de la marcha · Q/E: girar · Mayús: sin alinear',
     activate() {
       loadLibrary().then((l) => {
         library = l;
@@ -134,8 +165,37 @@ export function vehicleTool(ed: Editor): Tool {
       pending = null;
       applyTo = null;
     },
+    down(ev) {
+      // con un vehículo elegido: pulsar fija el sitio y arrastrar marca el sentido de la marcha
+      if (!pending || !ev.ground) return false;
+      aim = { x: ev.ground.x, z: ev.ground.z, dragged: false };
+      return true;
+    },
+    up(ev) {
+      if (!aim) return;
+      const a = aim;
+      aim = null;
+      ed.setHint?.(tool.hint ?? '');
+      if (a.dragged) place(a.x, a.z);
+      else if (ev.ground) place(ev.ground.x, ev.ground.z);
+      placedAt = performance.now();
+    },
     move(ev) {
       if (!ghost || !pending) return;
+      if (aim) {
+        if (!ev.ground) return;
+        const dx = ev.ground.x - aim.x;
+        const dz = ev.ground.z - aim.z;
+        if (Math.hypot(dx, dz) > 0.8) {
+          aim.dragged = true;
+          heading = ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360;
+          if (!(ev.e as PointerEvent).shiftKey)
+            for (const rh of roadHeadings(ed.world, aim.x, aim.z)) if (Math.abs(((heading - rh + 540) % 360) - 180) < 7) heading = rh;
+          ghost.rotation.set(0, (-heading * Math.PI) / 180, 0, 'YXZ');
+          ed.setHint?.(`Sentido de la marcha: ${headingText(heading)} · suelta para colocarlo`);
+        }
+        return;
+      }
       if (!ev.ground) {
         ghost.visible = false;
         return;
@@ -149,34 +209,9 @@ export function vehicleTool(ed: Editor): Tool {
       ghost.rotation.set(0, (-heading * Math.PI) / 180, 0, 'YXZ');
     },
     click(ev) {
-      if (!pending) {
-        ed.select(pickEntity(ed, ev));
-        return;
-      }
-      if (!ev.ground) return;
-      const n = ed.store.project.entities.filter((e) => e.kind === 'vehicle').length;
-      const label = nextLabel(ed);
-      const e: VehicleEntity = {
-        id: newId('v'),
-        kind: 'vehicle',
-        name: `${label} · ${specTitle(pending)}`,
-        label,
-        spec: structuredClone(pending),
-        x: ev.ground.x,
-        z: ev.ground.z,
-        heading,
-        color: pending.tipo === 'peaton' ? '#3d6e9e' : COLORS[n % COLORS.length],
-        plate: '',
-        occupants: pending.tipo === 'peaton' ? 0 : 1,
-        cargo: 0,
-        damage: [],
-        photos: [],
-      };
-      ed.store.add(e);
-      pending = null;
-      clearGhost();
-      ed.select(e.id);
-      ed.refreshOptions?.();
+      // el clic que acompaña a la colocación no debe seleccionar lo que haya debajo
+      if (performance.now() - placedAt < 400) return;
+      if (!pending) ed.select(pickEntity(ed, ev));
     },
     onKey(e) {
       const k = e.key.toLowerCase();

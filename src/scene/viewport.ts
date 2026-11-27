@@ -19,6 +19,8 @@ export function sunPosition(env: Environment, lat = 40.4, lon = -3.7) {
   return { elevation: el, azimuth: az };
 }
 
+export type MouseStyle = 'mapa' | '3d';
+
 export class Viewport {
   dom: HTMLElement;
   renderer: THREE.WebGLRenderer;
@@ -59,8 +61,17 @@ export class Viewport {
     this.controls.maxPolarAngle = 89 * DEG;
     this.controls.minDistance = 1;
     this.controls.maxDistance = 1500;
-    this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
     this.controls.zoomToCursor = true;
+    let style: MouseStyle = 'mapa';
+    try {
+      if (localStorage.getItem('catacrash.mouse') === '3d') style = '3d';
+    } catch {
+      /* sin almacenamiento */
+    }
+    this.setMouseStyle(style);
+    this.installKeys();
+    // si el usuario toma el control, se interrumpe cualquier viaje de cámara
+    this.controls.addEventListener('start', () => (this.flight = null));
 
     this.sky.scale.setScalar(4500);
     const u = this.sky.material.uniforms;
@@ -118,7 +129,15 @@ export class Viewport {
     if (this.paused) return;
     this.timer.update();
     const dt = Math.min(0.1, this.timer.getDelta());
+    this.stepFlight();
+    this.stepKeys(dt);
     this.controls.update();
+    // la cámara nunca atraviesa el suelo
+    if (this.groundHeight) {
+      const c = this.camera.position;
+      const g = this.groundHeight(c.x, c.z) + 1.2;
+      if (c.y < g) c.y = g;
+    }
     for (const cb of this.frameCbs) cb(dt);
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
@@ -184,17 +203,152 @@ export class Viewport {
     } else this.scene.fog = null;
   }
 
-  /** Vista cenital (planta) sobre el punto de interés actual. */
+  // ---------------- navegación ----------------
+
+  /** Cota del suelo bajo un punto (para que la cámara no lo atraviese). */
+  groundHeight: ((x: number, z: number) => number) | null = null;
+  mouseStyle: MouseStyle = 'mapa';
+
+  /**
+   * Manejo del ratón. «mapa» (como Google Maps): arrastrar con el izquierdo desplaza, con el
+   * derecho gira e inclina, la rueda acerca hacia el cursor. «3d»: el izquierdo gira, el derecho desplaza.
+   */
+  setMouseStyle(style: MouseStyle) {
+    this.mouseStyle = style;
+    this.controls.mouseButtons =
+      style === 'mapa' ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE } : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+    this.controls.touches = style === 'mapa' ? { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE } : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+    try {
+      localStorage.setItem('catacrash.mouse', style);
+    } catch {
+      /* sin almacenamiento */
+    }
+  }
+
+  private flight: { t0: number; ms: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromP: THREE.Vector3; toP: THREE.Vector3 } | null = null;
+
+  /** Viaje suave de la cámara a un nuevo punto de interés y posición. */
+  flyTo(target: THREE.Vector3, position: THREE.Vector3, ms = 650) {
+    this.flight = { t0: performance.now(), ms, fromT: this.controls.target.clone(), toT: target.clone(), fromP: this.camera.position.clone(), toP: position.clone() };
+  }
+  get flying() {
+    return !!this.flight;
+  }
+  private stepFlight() {
+    const f = this.flight;
+    if (!f) return;
+    const u = Math.min(1, (performance.now() - f.t0) / f.ms);
+    const k = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    // interpolación en coordenadas esféricas alrededor del objetivo (gira en vez de atravesar)
+    const tgt = f.fromT.clone().lerp(f.toT, k);
+    const a = new THREE.Spherical().setFromVector3(f.fromP.clone().sub(f.fromT));
+    const b = new THREE.Spherical().setFromVector3(f.toP.clone().sub(f.toT));
+    let dth = b.theta - a.theta;
+    while (dth > Math.PI) dth -= 2 * Math.PI;
+    while (dth < -Math.PI) dth += 2 * Math.PI;
+    const sp = new THREE.Spherical(a.radius + (b.radius - a.radius) * k, a.phi + (b.phi - a.phi) * k, a.theta + dth * k);
+    this.controls.target.copy(tgt);
+    this.camera.position.copy(tgt).add(new THREE.Vector3().setFromSpherical(sp));
+    if (u >= 1) this.flight = null;
+  }
+
+  private orbit() {
+    return new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(this.controls.target));
+  }
+  private fromOrbit(sp: THREE.Spherical, target = this.controls.target) {
+    return target.clone().add(new THREE.Vector3().setFromSpherical(sp));
+  }
+
+  /** Vista cenital (planta) sobre el punto de interés actual, con el norte arriba. */
   topView() {
-    const t = this.controls.target;
-    const d = Math.max(30, this.camera.position.distanceTo(t));
-    this.camera.position.set(t.x, t.y + d, t.z + 0.001);
-    this.controls.update();
+    const sp = this.orbit();
+    sp.phi = 0.0008;
+    sp.theta = 0;
+    sp.radius = Math.max(30, sp.radius);
+    this.flyTo(this.controls.target, this.fromOrbit(sp));
+  }
+  /** Vista en perspectiva (inclinada) manteniendo la orientación. */
+  view3d() {
+    const sp = this.orbit();
+    sp.phi = 55 * DEG;
+    this.flyTo(this.controls.target, this.fromOrbit(sp));
+  }
+  get isTop() {
+    return this.orbit().phi < 8 * DEG;
+  }
+  /** Gira la vista alrededor del punto de interés. */
+  rotateBy(deg: number) {
+    const sp = this.orbit();
+    sp.theta += deg * DEG;
+    this.flyTo(this.controls.target, this.fromOrbit(sp), 350);
+  }
+  /** Norte arriba. */
+  northUp() {
+    const sp = this.orbit();
+    sp.theta = 0;
+    this.flyTo(this.controls.target, this.fromOrbit(sp), 450);
+  }
+  zoomBy(f: number) {
+    const sp = this.orbit();
+    sp.radius = Math.min(this.controls.maxDistance, Math.max(3, sp.radius * f));
+    this.flyTo(this.controls.target, this.fromOrbit(sp), 300);
   }
 
   focus(p: THREE.Vector3, dist = 30) {
-    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
-    this.controls.target.copy(p);
-    this.camera.position.copy(p.clone().add(dir.multiplyScalar(dist)));
+    const sp = this.orbit();
+    sp.radius = dist;
+    if (sp.phi > 75 * DEG) sp.phi = 55 * DEG;
+    this.flyTo(p, this.fromOrbit(sp, p));
+  }
+
+  /** Encuadra una caja (vista desde la orientación actual). */
+  frameBox(box: THREE.Box3) {
+    if (box.isEmpty()) return;
+    const s = new THREE.Sphere();
+    box.getBoundingSphere(s);
+    const dist = Math.max(12, s.radius / Math.tan((this.camera.fov * DEG) / 2) * 1.05);
+    this.focus(s.center, dist);
+  }
+
+  // teclado: flechas desplazan, Q/E giran, +/− acercan
+  private keys = new Set<string>();
+  private installKeys() {
+    const typing = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    };
+    window.addEventListener('keydown', (e) => {
+      if (typing(e) || e.ctrlKey || e.metaKey) return;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        this.keys.add(e.key);
+        e.preventDefault();
+      } else
+        // después de que el editor y sus herramientas hayan podido usar la tecla
+        queueMicrotask(() => {
+          if (e.defaultPrevented) return;
+          if (e.key === 'q' || e.key === 'Q') this.rotateBy(-15);
+          else if (e.key === 'e' || e.key === 'E') this.rotateBy(15);
+          else if (e.key === '+' || e.key === '=') this.zoomBy(0.7);
+          else if (e.key === '-') this.zoomBy(1.4);
+        });
+    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.key));
+    window.addEventListener('blur', () => this.keys.clear());
+  }
+  private stepKeys(dt: number) {
+    if (!this.keys.size) return;
+    const fwd = this.controls.target.clone().sub(this.camera.position).setY(0);
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1).applyQuaternion(this.camera.quaternion).setY(0);
+    fwd.normalize();
+    const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const speed = Math.max(8, this.camera.position.distanceTo(this.controls.target) * 0.9) * dt;
+    const m = new THREE.Vector3();
+    if (this.keys.has('ArrowUp')) m.add(fwd);
+    if (this.keys.has('ArrowDown')) m.sub(fwd);
+    if (this.keys.has('ArrowRight')) m.add(right);
+    if (this.keys.has('ArrowLeft')) m.sub(right);
+    m.multiplyScalar(speed);
+    this.camera.position.add(m);
+    this.controls.target.add(m);
   }
 }

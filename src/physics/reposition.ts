@@ -51,17 +51,19 @@ function reroute(e: VehicleEntity, from: Pose, to: Pose) {
   const sOld = path.project(oldRear.x, oldRear.z);
   const sNew = path.project(newRear.x, newRear.z);
   const cs = d.path.map((p) => path.project(p.x, p.z));
-  const near = 7;
+  const near = angDiff(to.h, from.h) > 4 ? 12 : 7;
   const lo = Math.abs(sNew - sOld) < near ? Math.min(sNew, sOld) - near : sNew - near;
   const hi = Math.abs(sNew - sOld) < near ? Math.max(sNew, sOld) + near : sNew + near;
   const before = d.path.filter((_, i) => cs[i] < lo);
   const after = d.path.filter((_, i) => cs[i] > hi);
   const mid: CtrlPoint[] = [];
   const [fx, fz] = fwd(to.h);
+  // si se ha girado, la ruta llega y sale en la nueva dirección (tramo recto de ±8 m)
   const turned = angDiff(to.h, from.h) > 4;
-  if (turned) mid.push({ x: newRear.x - fx * 4, z: newRear.z - fz * 4, h: null });
+  if (turned) mid.push({ x: newRear.x - fx * 8, z: newRear.z - fz * 8, h: null }, { x: newRear.x - fx * 4, z: newRear.z - fz * 4, h: null });
   mid.push(newRear);
   if (turned || !after.length) mid.push({ x: newRear.x + fx * 4, z: newRear.z + fz * 4, h: null });
+  if (turned) mid.push({ x: newRear.x + fx * 8, z: newRear.z + fz * 8, h: null });
   let pts = [...before, ...mid, ...after];
   // nunca menos de dos puntos ni puntos casi duplicados
   pts = pts.filter((p, i) => i === 0 || Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) > 0.5);
@@ -173,9 +175,9 @@ export function repositionVehicle(world: World, e: VehicleEntity, t: number, to:
 
   if (!world.isDriven(e)) {
     if (tc === null || t <= tc + 0.01) {
-      e.x = to.x;
-      e.z = to.z;
-      e.heading = ((to.h % 360) + 360) % 360;
+      e.x = Math.round(to.x * 100) / 100;
+      e.z = Math.round(to.z * 100) / 100;
+      e.heading = Math.round((((to.h % 360) + 360) % 360) * 10) / 10;
       return { phase: 'estatico', message: `${e.label}: vehículo parado recolocado.`, needsFit: false };
     }
     pin(e, t, to);
@@ -220,7 +222,15 @@ export function repositionVehicle(world: World, e: VehicleEntity, t: number, to:
     };
   }
   d.speed = speed;
-  const tail = Math.abs(err) > 1 ? ` Queda a ${Math.abs(err).toFixed(1).replace('.', ',')} m de la posición pedida.` : '';
+  let tail = Math.abs(err) > 1 ? ` Queda a ${Math.abs(err).toFixed(1).replace('.', ',')} m de la posición pedida.` : '';
+  // en marcha no puede girar en seco: avisar si el rumbo conseguido difiere del pedido
+  {
+    const input = world.simInput([e]);
+    input.end = Math.max(t + 0.02, input.start + 0.02);
+    const f = frameAt(simulate({ ...input, vehicles: [e] }).vehicles.get(e.id)!, t);
+    const dh = angDiff(f.h, to.h);
+    if (dh > 8) tail += ` En marcha no puede girar en seco: en ese instante su rumbo es ${Math.round(f.h)}° (pediste ${Math.round(to.h)}°); su ruta ya sigue la nueva dirección.`;
+  }
   return {
     phase: 'antes',
     message: `${e.label}: ruta rehecha por la nueva posición; velocidad ${Math.round(old)} → ${Math.round(speed)} km/h para estar ahí en ${fmtT(t)}.${tail}`,

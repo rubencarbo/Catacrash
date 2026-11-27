@@ -41,7 +41,7 @@ export function selectTool(ed: Editor): Tool {
     icon: ICON.select,
     key: 'v',
     handles: true,
-    hint: 'Clic: seleccionar · Arrastrar puntos naranjas: mover · Puntos blancos: insertar · G/R: mover/girar objeto · Supr: borrar · F: encuadrar',
+    hint: 'Clic: seleccionar · Arrastrar un vehículo u objeto: moverlo · Flecha naranja: girarlo · Puntos naranjas: mover · Puntos blancos: insertar · Doble clic: ir ahí · Supr: borrar',
     click(ev) {
       ed.select(pickEntity(ed, ev));
     },

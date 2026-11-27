@@ -2,7 +2,13 @@
 
 Aplicación web (three.js, sin servidor) para **recrear escenarios de accidentes de tráfico** a escala real y, en fases posteriores, animar la secuencia del siniestro.
 
-Esta primera fase es el **editor de escenarios**:
+Uso guiado:
+- **Al empezar**, el asistente «¿Cómo quieres empezar?» ofrece: carretera tipo (recta, curva, cruce en T o en X, glorieta, con el tipo de vía), captura aérea de Google Maps u ortofoto (calco con calibración de escala en dos clics), fotos del lugar o de Street View (encajadas en 3D), croquis a mano (calco con el papel transparente), lugar real de España por coordenadas o dirección (ortofoto PNOA y relieve del IGN) o el ejemplo. Pegar una imagen con Ctrl+V en cualquier momento pregunta si es vista aérea, croquis o foto del lugar.
+- **Pasos guiados** en la parte superior: Lugar → Vehículos → Movimiento → Choque → Informe, con el estado de cada uno, qué hacer y botones que lo hacen («Dar movimiento a todos», «Marcar punto de colisión», «Ver el choque», «Abrir informe»).
+- **Vehículos con el ratón**: al colocar, clic (se alinea con el carril) o pulsar y arrastrar en el sentido de la marcha; el seleccionado se mueve arrastrando la carrocería y se gira con la flecha naranja de su dial (se ajusta a la vía; Mayús: pasos de 15°). Barra contextual junto al vehículo: girar ±15°, invertir sentido, alinear con la vía, darle movimiento o ajustar, duplicar y borrar.
+- **Cámara**: ratón tipo mapa (izquierdo desplaza, derecho gira, rueda acerca hacia el cursor) o tipo 3D; panel de navegación con brújula (clic: norte arriba), acercar/alejar, girar 45°, planta ↔ 3D y ver todo; doble clic para ir a un punto; flechas y Q/E; transiciones suaves y sin atravesar el suelo.
+
+El **editor de escenarios**:
 
 | Herramienta | Atajo | Qué hace |
 |---|---|---|

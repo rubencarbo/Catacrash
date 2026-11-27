@@ -169,6 +169,17 @@ export function photoTool(ed: Editor): Tool {
     ed.refreshOptions?.();
   };
 
+  ed.preparePhoto = async (blob, name) => {
+    const { url, aspect } = await readImage(blob, false);
+    const asset = newId('img');
+    ed.store.assets.set(asset, url);
+    pending = { asset, aspect, name };
+    ed.setTool('photo');
+    ed.refreshOptions?.();
+    ed.setHint?.('Haz clic en el punto desde donde se tomó la foto');
+    toast('Haz clic en el punto de la escena desde donde se tomó la foto; después ajusta rumbo y altura hasta que encaje.', 'info', 7000);
+  };
+
   return {
     id: 'photo',
     label: 'Fotos de referencia',

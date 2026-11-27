@@ -45,6 +45,19 @@ export async function readImage(file: Blob, removeWhite: boolean): Promise<{ url
   return { url: c.toDataURL('image/jpeg', 0.9), aspect: c.height / c.width };
 }
 
+/** Descarga la ortofoto PNOA del IGN y la coloca como calco a escala y georreferenciada. */
+export async function loadOrtho(ed: Editor, lat: number, lon: number, size: number) {
+  const r = await loadPnoa(lat, lon, size);
+  const g = ed.store.project.geo;
+  let cx = 0;
+  let cz = 0;
+  if (g && g.epsg === r.geo.epsg) {
+    cx = r.geo.e0 - g.e0;
+    cz = g.n0 - r.geo.n0;
+  } else ed.store.edit(() => (ed.store.project.geo = r.geo), { type: 'env' });
+  return addOverlay(ed, r.url, 1, `Ortofoto PNOA ${lat.toFixed(4)}, ${lon.toFixed(4)}`, size, cx, cz);
+}
+
 export function addOverlay(ed: Editor, url: string, aspect: number, name: string, width = 100, cx?: number, cz?: number) {
   const asset = newId('img');
   ed.store.assets.set(asset, url);
@@ -87,6 +100,15 @@ export function overlayTool(ed: Editor): Tool {
     calib = null;
     markers.clear();
     ed.refreshOptions?.();
+  };
+
+  ed.calibrateOverlay = (id) => {
+    ed.setTool('overlay');
+    ed.select(id);
+    calib = { id, a: null, b: null };
+    markers.clear();
+    ed.refreshOptions?.();
+    ed.setHint?.('Calibrar escala: clic en dos puntos de una distancia conocida del calco');
   };
 
   const tool: Tool = {
@@ -144,7 +166,7 @@ export function overlayTool(ed: Editor): Tool {
                     o.cx = a.x + (o.cx - a.x) * k;
                     o.cz = a.z + (o.cz - a.z) * k;
                   }, { type: 'entity', id: o.id });
-                  toast(`Calco escalado ×${fmt(k, 3)}`);
+                  toast(`Calco a escala (×${fmt(k, 3)}). Ahora dibuja la carretera encima con la herramienta Carretera (C).`, 'info', 7000);
                   stopCalib();
                 },
               },

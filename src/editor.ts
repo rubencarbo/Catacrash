@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { newId, type Store } from './model/store';
-import type { Entity, OverlayEntity, PropEntity } from './model/types';
+import type { Entity, OverlayEntity, PropEntity, VehicleEntity } from './model/types';
 import type { Viewport } from './scene/viewport';
 import type { World } from './scene/world';
 import { Handles, type HandleKind } from './tools/handles';
 import { DEG } from './scene/utils';
 import type { Player } from './anim/player';
-import { repositionVehicle, type RepositionResult } from './physics/reposition';
+import { repositionVehicle, type Pose, type RepositionResult } from './physics/reposition';
+import { Dial, headingText, roadHeadings } from './tools/dial';
+import { pickEntity } from './tools/basic';
 import { toast } from './ui/dom';
 
 export interface ToolEvent {
@@ -76,22 +78,17 @@ export class Editor {
       } else {
         // un vehículo recolocado en el instante actual: adaptar la reconstrucción
         const sel = store.selection && store.get(store.selection.id);
-        let res: RepositionResult | null = null;
         if (this.vehicleMoved && sel && sel.kind === 'vehicle' && this.gizmo.object) {
           const obj = this.gizmo.object;
           const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
-          const pose = { x: obj.position.x, z: obj.position.z, h: ((-eu.y / DEG) % 360 + 360) % 360 };
-          res = repositionVehicle(world, sel, this.player?.time ?? 0, pose);
+          this.vehicleMoved = false;
+          this.commitVehicle(sel, { x: obj.position.x, z: obj.position.z, h: ((-eu.y / DEG) % 360 + 360) % 360 });
+          return;
         }
         this.vehicleMoved = false;
         store.end();
         const id = store.selection?.id;
-        if (res) store.notify({ type: 'env' });
-        else if (id) store.notify({ type: 'entity', id });
-        if (res) {
-          toast(res.message);
-          if (res.needsFit && sel) this.onNeedsFit?.(sel.id);
-        }
+        if (id) store.notify({ type: 'entity', id });
       }
     });
     this.gizmo.addEventListener('objectChange', () => this.onGizmoChange());
@@ -100,10 +97,22 @@ export class Editor {
     dom.addEventListener('pointerdown', (e) => this.onDown(e), { capture: true });
     dom.addEventListener('pointermove', (e) => this.onMove(e));
     window.addEventListener('pointerup', (e) => this.onUp(e));
-    dom.addEventListener('dblclick', (e) => this.tool.dblclick?.(this.event(e)));
+    dom.addEventListener('dblclick', (e) => {
+      const tgt = e.target as HTMLElement;
+      if (tgt !== this.vp.renderer.domElement) return;
+      const ev = this.event(e);
+      if (this.tool.dblclick) return void this.tool.dblclick(ev);
+      // doble clic en el suelo: acercarse a ese punto
+      if (ev.ground) this.vp.focus(ev.ground, Math.max(12, Math.min(60, this.vp.camera.position.distanceTo(this.vp.controls.target) * 0.6)));
+    });
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => this.onKey(e));
 
+    this.dial = new Dial(vp.scene, world);
+    this.tipEl = document.createElement('div');
+    this.tipEl.className = 'dial-tip';
+    vp.dom.append(this.tipEl);
+    vp.onFrame(() => this.dial.update(vp.camera));
     store.onSelect(() => this.refreshSelection());
     world.onRebuilt = () => this.refreshSelection();
     vp.onFrame(() => {
@@ -170,7 +179,96 @@ export class Editor {
         return;
       }
     }
+    // dial: flecha de giro del objeto seleccionado
+    if (this.tool.id === 'select' || this.tool.id === 'vehicle') {
+      if (this.dial.target && this.dial.pick(ev.ray)) {
+        this.startDial(this.dial.target, 'rot', ev, e);
+        return;
+      }
+    }
+    // arrastrar un vehículo u objeto lo mueve (y lo selecciona si no lo estaba)
+    if (this.tool.id === 'select') {
+      const id = pickEntity(this, ev);
+      const ent = id ? this.store.get(id) : null;
+      if (ent && (ent.kind === 'vehicle' || ent.kind === 'prop') && !this.gizmoOn) {
+        if (this.store.selection?.id !== id) this.select(id);
+        this.startDial(id!, 'move', ev, e);
+        return;
+      }
+    }
     if (this.tool.down?.(ev)) this.capture();
+  }
+
+  private startDial(id: string, mode: 'rot' | 'move', ev: ToolEvent, pe: PointerEvent) {
+    const obj = this.world.objects.get(id);
+    const pose = this.currentPose(id);
+    if (!obj || !pose) return;
+    const g = ev.ground ?? this.planeHit(ev.ray, obj.position.y);
+    this.player?.pause();
+    this.store.begin();
+    this.dialDrag = { id, mode, grab: new THREE.Vector2(g ? obj.position.x - g.x : 0, g ? obj.position.z - g.z : 0), x: pe.clientX, y: pe.clientY, moved: false, h: pose.h };
+    this.capture();
+  }
+
+  private dragDial(ev: ToolEvent) {
+    const d = this.dialDrag!;
+    const obj = this.world.objects.get(d.id);
+    const e = this.store.get(d.id);
+    if (!obj || !e) return;
+    const pe = ev.e as PointerEvent;
+    if (!d.moved && Math.hypot(pe.clientX - d.x, pe.clientY - d.y) < 4) return;
+    d.moved = true;
+    const g = ev.ground ?? this.planeHit(ev.ray, obj.position.y);
+    if (!g) return;
+    if (d.mode === 'rot') {
+      let h = ((Math.atan2(g.x - obj.position.x, -(g.z - obj.position.z)) / DEG) % 360 + 360) % 360;
+      let note = '';
+      if (pe.shiftKey) {
+        h = Math.round(h / 15) * 15;
+        note = ' · pasos de 15°';
+      } else {
+        for (const rh of roadHeadings(this.world, obj.position.x, obj.position.z)) {
+          const dd = Math.abs(((h - rh + 540) % 360) - 180);
+          if (dd < 7) {
+            h = rh;
+            note = ' · alineado con la vía';
+          }
+        }
+      }
+      d.h = h;
+      const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
+      obj.rotation.set(eu.x, -h * DEG, eu.z, 'YXZ');
+      if (e.kind === 'prop') {
+        e.rot = h;
+        this.world.placeProp(obj, e);
+      }
+      this.showTip(`Rumbo ${headingText(h)}${note}  (Mayús: pasos de 15°)`, pe.clientX, pe.clientY);
+    } else {
+      const x = g.x + d.grab.x;
+      const z = g.z + d.grab.y;
+      obj.position.set(x, this.world.surfaceHeight(x, z), z);
+      if (e.kind === 'prop') {
+        e.x = x;
+        e.z = z;
+        this.world.placeProp(obj, e);
+      }
+      this.showTip(e.kind === 'vehicle' ? 'Suelta para recolocarlo en este instante' : 'Moviendo', pe.clientX, pe.clientY);
+    }
+  }
+
+  private endDial() {
+    const d = this.dialDrag!;
+    this.dialDrag = null;
+    this.showTip(null);
+    const e = this.store.get(d.id);
+    const obj = this.world.objects.get(d.id);
+    if (!d.moved || !e || !obj) {
+      this.store.end();
+      return;
+    }
+    if (e.kind === 'vehicle') return this.commitVehicle(e, { x: obj.position.x, z: obj.position.z, h: d.h });
+    this.store.end();
+    this.store.notify({ type: 'entity', id: d.id });
   }
 
   private capture() {
@@ -182,7 +280,8 @@ export class Editor {
     const ev = this.event(e);
     this.cursor = ev.ground;
     for (const l of this.cursorListeners) l(ev.ground);
-    if (this.handleDrag) this.dragHandle(ev);
+    if (this.dialDrag) this.dragDial(ev);
+    else if (this.handleDrag) this.dragHandle(ev);
     else this.tool.move?.(ev);
   }
 
@@ -190,7 +289,8 @@ export class Editor {
     const d = this.downAt;
     this.downAt = null;
     const ev = this.event(e);
-    if (this.handleDrag) {
+    if (this.dialDrag) this.endDial();
+    else if (this.handleDrag) {
       this.handleDrag = null;
       this.store.end();
     } else if (this.captured) this.tool.up?.(ev);
@@ -314,6 +414,63 @@ export class Editor {
     this.inspectorSync?.();
   }
   inspectorSync: (() => void) | null = null;
+  /** Dial de giro del objeto seleccionado. */
+  dial: Dial;
+  private dialDrag: { id: string; mode: 'rot' | 'move'; grab: THREE.Vector2; x: number; y: number; moved: boolean; h: number } | null = null;
+  private tipEl: HTMLDivElement;
+  /** El gizmo de ejes solo aparece al pulsar G o R; normalmente se usa el dial. */
+  private gizmoOn = false;
+
+  /**
+   * Aplica una nueva posición/rumbo a un vehículo en el instante actual (dentro de una edición
+   * ya abierta con store.begin): recalcula la reconstrucción y la cierra.
+   */
+  commitVehicle(e: VehicleEntity, pose: Pose) {
+    const res: RepositionResult = repositionVehicle(this.world, e, this.player?.time ?? 0, pose);
+    this.store.end();
+    this.store.notify({ type: 'env' });
+    toast(res.message);
+    if (res.needsFit) this.onNeedsFit?.(e.id);
+  }
+
+  /** Gira (o recoloca) un vehículo u objeto en una sola acción deshacible. */
+  setPose(id: string, pose: Pose) {
+    const e = this.store.get(id);
+    if (!e) return;
+    this.store.begin();
+    if (e.kind === 'vehicle') return this.commitVehicle(e, pose);
+    if (e.kind === 'prop') {
+      e.x = pose.x;
+      e.z = pose.z;
+      e.rot = ((pose.h % 360) + 360) % 360;
+    }
+    this.store.end();
+    this.store.notify({ type: 'entity', id });
+  }
+
+  /** Posición y rumbo actuales (en el instante de la animación) de un vehículo u objeto. */
+  currentPose(id: string): Pose | null {
+    const e = this.store.get(id);
+    if (!e) return null;
+    if (e.kind === 'vehicle') {
+      const f = this.world.vehiclePose(e);
+      return { x: f.x, z: f.z, h: f.h };
+    }
+    if (e.kind === 'prop') return { x: e.x, z: e.z, h: e.rot };
+    return null;
+  }
+
+  private showTip(text: string | null, x = 0, y = 0) {
+    if (!text) {
+      this.tipEl.style.display = 'none';
+      return;
+    }
+    const r = this.vp.dom.getBoundingClientRect();
+    this.tipEl.textContent = text;
+    this.tipEl.style.display = 'block';
+    this.tipEl.style.left = `${x - r.left + 16}px`;
+    this.tipEl.style.top = `${y - r.top + 14}px`;
+  }
   /** Se ha arrastrado el vehículo seleccionado durante el gesto actual del gizmo. */
   private vehicleMoved = false;
   /** Tras recolocar un vehículo después del choque: buscar velocidades que lo reproduzcan. */
@@ -324,6 +481,10 @@ export class Editor {
   refreshOptions: (() => void) | null = null;
   /** Entra en el modo «coincidir foto» para la foto indicada. */
   photoMatch: ((id: string) => void) | null = null;
+  /** Prepara una foto de referencia para colocarla con el próximo clic (herramienta Fotos). */
+  preparePhoto: ((blob: Blob, name: string) => Promise<void>) | null = null;
+  /** Empieza la calibración de escala de un calco (dos clics y la distancia real). */
+  calibrateOverlay: ((id: string) => void) | null = null;
   /** Captura el próximo clic sobre el suelo (p. ej. fijar el punto de colisión). */
   pickOnce: ((p: THREE.Vector3) => void) | null = null;
   /** Reproductor de la animación (lo asigna main). */
@@ -352,6 +513,7 @@ export class Editor {
       this.selBox = null;
     }
     this.gizmo.detach();
+    this.dial.show(null);
     this.handles.clear();
     this.world.showGhostFor(sel?.id ?? null);
     if (!e) return;
@@ -363,7 +525,9 @@ export class Editor {
       this.vp.scene.add(this.selBox);
     }
     const gt = e.kind === 'vehicle' ? this.world.gizmoTarget(e) : obj;
-    if ((e.kind === 'prop' || e.kind === 'vehicle') && gt && obj?.visible && (this.tool.id === 'select' || this.tool.id === 'vehicle')) this.gizmo.attach(gt);
+    const editing = this.tool.id === 'select' || this.tool.id === 'vehicle';
+    if (this.gizmoOn && (e.kind === 'prop' || e.kind === 'vehicle') && gt && obj?.visible && editing) this.gizmo.attach(gt);
+    this.dial.show(editing && !this.gizmoOn ? e : null);
     if (this.tool.handles) this.handles.show(e, sel?.point);
   }
 
@@ -425,6 +589,31 @@ export class Editor {
     this.vp.focus(c, r);
   }
 
+  /** Encuadra todo el escenario dibujado (carreteras, vehículos, objetos, calcos). */
+  frameAll() {
+    const box = new THREE.Box3();
+    for (const e of this.store.project.entities) {
+      if (e.hidden) continue;
+      if (e.kind === 'overlay') {
+        const o = e as OverlayEntity;
+        box.expandByPoint(new THREE.Vector3(o.cx - o.width / 2, 0, o.cz - o.width / 2));
+        box.expandByPoint(new THREE.Vector3(o.cx + o.width / 2, 0, o.cz + o.width / 2));
+        continue;
+      }
+      if ('points' in e && e.points.length) for (const p of e.points) box.expandByPoint(new THREE.Vector3(p.x, this.world.surfaceHeight(p.x, p.z), p.z));
+      else if ('x' in e && 'z' in e) box.expandByPoint(new THREE.Vector3(e.x, this.world.surfaceHeight(e.x, e.z), e.z));
+      else if (e.kind === 'roundabout') {
+        box.expandByPoint(new THREE.Vector3(e.cx - e.radius, 0, e.cz - e.radius));
+        box.expandByPoint(new THREE.Vector3(e.cx + e.radius, 0, e.cz + e.radius));
+      }
+    }
+    if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(80, 1, 80));
+    // escenarios muy extensos: centrarse en lo principal sin alejarse demasiado
+    const size = box.getSize(new THREE.Vector3());
+    if (size.length() > 600) box.setFromCenterAndSize(box.getCenter(new THREE.Vector3()), new THREE.Vector3(300, size.y, 300));
+    this.vp.frameBox(box);
+  }
+
   private onKey(e: KeyboardEvent) {
     const tgt = e.target as HTMLElement;
     if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)) return;
@@ -446,22 +635,33 @@ export class Editor {
       return;
     }
     if (ctrl) return;
-    if (this.tool.onKey?.(e)) return;
+    if (this.tool.onKey?.(e)) {
+      e.preventDefault(); // la herramienta lo ha usado (la cámara no debe reaccionar)
+      return;
+    }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       this.deleteSelection();
       return;
     }
     if (e.key === 'Escape') {
+      if (this.gizmoOn) {
+        this.gizmoOn = false;
+        return this.refreshSelection();
+      }
       if (this.tool.id !== 'select') this.setTool('select');
       else this.select(null);
       return;
     }
     const k = e.key.toLowerCase();
     if (k === 'f') return this.focusSelection();
-    if (k === 'p') return this.vp.topView();
+    if (k === 'p') return this.vp.isTop ? this.vp.view3d() : this.vp.topView();
     const sel = this.store.selection && this.store.get(this.store.selection.id);
-    if ((sel?.kind === 'prop' || sel?.kind === 'vehicle') && (k === 'g' || k === 'r')) return this.setGizmoMode(k === 'g' ? 'translate' : 'rotate');
+    if ((sel?.kind === 'prop' || sel?.kind === 'vehicle') && (k === 'g' || k === 'r')) {
+      this.gizmoOn = true;
+      this.setGizmoMode(k === 'g' ? 'translate' : 'rotate');
+      return this.refreshSelection();
+    }
     for (const t of this.tools.values()) if (t.key === k) return this.setTool(t.id);
   }
 }

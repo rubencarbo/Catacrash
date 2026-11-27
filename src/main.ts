@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import { Editor, type Tool } from './editor';
 import { download, deserialize, pickFile, serialize } from './io/file';
 import { sceneToUtm } from './io/geo';
-import { emptyProject } from './model/defaults';
 import { demoProject } from './model/demo';
 import { isStaleDemo, migrateProject } from './model/migrate';
 import { idbGet, Store } from './model/store';
@@ -17,7 +16,7 @@ import { vehicleTool } from './tools/vehicleTool';
 import { photoTool } from './tools/photoTool';
 import { roundaboutTool } from './tools/roundaboutTool';
 import { sculptTool } from './tools/sculpt';
-import { clear, confirmDialog, fmt, h, toast } from './ui/dom';
+import { clear, fmt, h, toast } from './ui/dom';
 import { ICON } from './ui/icons';
 import { Inspector } from './ui/inspector';
 import { Outliner } from './ui/outliner';
@@ -25,6 +24,10 @@ import { Player } from './anim/player';
 import { TimelineBar } from './ui/timeline';
 import { openReport } from './ui/reportDialog';
 import { openFitDialog } from './ui/fitDialog';
+import { buildNavWidget } from './ui/navWidget';
+import { buildQuickBar } from './ui/quickBar';
+import { installPasteImage, openStartWizard } from './ui/startWizard';
+import { buildSteps } from './ui/steps';
 import { simulate as __sim } from './physics/sim';
 import { analyze as __an } from './analysis/analyze';
 import { candidateParams as __cp, evaluate as __ev, fit as __fit } from './physics/fit';
@@ -83,9 +86,15 @@ async function boot() {
   buildToolPanel(ed);
   buildTopbar(ed, store, world);
   buildStatus(ed, store);
-  buildCompass(vp, vpEl);
+  buildNavWidget(ed, vpEl);
+  buildQuickBar(ed, vpEl);
+  buildSteps(ed, vpEl, () => openFileWith(store));
+  vp.groundHeight = (x, z) => world.surfaceHeight(x, z);
 
+  installPasteImage(ed);
   document.getElementById('loading')?.remove();
+  // primera visita: elegir cómo empezar (detrás queda el ejemplo)
+  if (!saved?.project?.terrain?.base) setTimeout(() => openStartWizard(ed, { first: true, openFile: () => openFileWith(store) }), 400);
   if (notice) setTimeout(() => toast(notice), 600);
   (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player, simulate: __sim, fitTools: { evaluate: __ev, candidateParams: __cp, fit: __fit }, analyze: __an };
 }
@@ -118,15 +127,32 @@ function buildToolPanel(ed: Editor) {
     if (t.options) t.options(el);
     else if (t.id === 'select') {
       el.append(
-        h('p', { class: 'muted' }, 'Haz clic sobre cualquier elemento para editarlo. Los trazados muestran sus puntos de control: arrástralos sobre el terreno.'),
-        h('div', { class: 'cat-title' }, 'Atajos'),
+        h('p', { class: 'muted' }, 'Haz clic sobre cualquier elemento para editarlo. Arrastra un vehículo u objeto para moverlo y su flecha naranja para girarlo. Los trazados muestran sus puntos de control: arrástralos sobre el terreno.'),
+        h('div', { class: 'cat-title' }, 'Cámara'),
+        shortcuts(
+          ed.vp.mouseStyle === 'mapa'
+            ? [
+                ['Arrastrar (izq.)', 'Desplazar el mapa'],
+                ['Arrastrar (der.)', 'Girar e inclinar'],
+                ['Rueda', 'Acercar hacia el cursor'],
+                ['Doble clic', 'Ir a ese punto'],
+                ['Flechas · Q/E', 'Desplazar · girar'],
+                ['P', 'Planta ↔ 3D'],
+              ]
+            : [
+                ['Arrastrar (izq.)', 'Girar e inclinar'],
+                ['Arrastrar (der.)', 'Desplazar'],
+                ['Rueda', 'Acercar hacia el cursor'],
+                ['Doble clic', 'Ir a ese punto'],
+                ['Flechas · Q/E', 'Desplazar · girar'],
+                ['P', 'Planta ↔ 3D'],
+              ],
+        ),
+        h('div', { class: 'cat-title' }, 'Edición'),
         shortcuts([
-          ['Clic izq. + arrastrar', 'Girar cámara'],
-          ['Clic der. + arrastrar', 'Desplazar'],
-          ['Rueda', 'Zoom hacia el cursor'],
-          ['P', 'Vista en planta'],
+          ['Arrastrar objeto', 'Moverlo (en el instante actual)'],
+          ['Flecha naranja', 'Girarlo (Mayús: 15°)'],
           ['F', 'Encuadrar selección'],
-          ['G / R', 'Mover / girar objeto'],
           ['Ctrl+D', 'Duplicar'],
           ['Supr', 'Borrar (o el punto seleccionado)'],
           ['Ctrl+Z / Ctrl+Y', 'Deshacer / rehacer'],
@@ -148,7 +174,23 @@ function shortcuts(rows: [string, string][]) {
   return t;
 }
 
+/** Abre un escenario guardado (.json). */
+async function openFileWith(store: Store) {
+  const f = await pickFile('.json,application/json');
+  if (!f) return;
+  try {
+    const { project, assets } = deserialize(await f.text());
+    const n = migrateProject(project);
+    store.load(project, assets);
+    if (n) toast(`${n} vehículo(s) con trayectoria antigua convertidos a conducción simulada.`);
+    toast(`Abierto: ${project.name}`);
+  } catch (e) {
+    toast((e as Error).message, 'error');
+  }
+}
+
 function buildTopbar(ed: Editor, store: Store, world: World) {
+  const openFile = () => openFileWith(store);
   const bar = document.getElementById('topbar')!;
   const env = store.project.env;
   const name = h('input', {
@@ -225,32 +267,15 @@ function buildTopbar(ed: Editor, store: Store, world: World) {
     h('span', { class: 'sep' }),
     h('button', {
       class: 'icon-btn',
-      title: 'Nuevo escenario',
+      title: 'Nuevo escenario: desde una carretera tipo, una captura, fotos, un croquis o un lugar real',
       html: ICON.file,
-      onclick: async () => {
-        const ok = await confirmDialog('Nuevo escenario', 'Se creará un escenario vacío. El actual se perderá si no lo has exportado.', 'Crear vacío');
-        if (!ok) return;
-        store.load(emptyProject(), new Map());
-        toast('Escenario vacío creado.');
-      },
+      onclick: () => openStartWizard(ed, { openFile }),
     }),
     h('button', {
       class: 'icon-btn',
       title: 'Abrir escenario (.json)',
       html: ICON.open,
-      onclick: async () => {
-        const f = await pickFile('.json,application/json');
-        if (!f) return;
-        try {
-          const { project, assets } = deserialize(await f.text());
-          const n = migrateProject(project);
-          store.load(project, assets);
-          if (n) toast(`${n} vehículo(s) con trayectoria antigua convertidos a conducción simulada.`);
-          toast(`Abierto: ${project.name}`);
-        } catch (e) {
-          toast((e as Error).message, 'error');
-        }
-      },
+      onclick: () => openFile(),
     }),
     h('button', {
       class: 'icon-btn',
@@ -386,22 +411,6 @@ function buildStatus(ed: Editor, store: Store) {
       s += `  ·  UTM ${g.epsg - 25800}N  ${fmt(u.e, 1)}  ${fmt(u.n, 1)}`;
     }
     coords.textContent = s;
-  });
-}
-
-function buildCompass(vp: Viewport, host: HTMLElement) {
-  const el = h('div', {
-    class: 'compass',
-    title: 'Norte',
-    html: '<svg class="needle" viewBox="0 0 44 44"><path d="M22 4l6 18h-12z" fill="#ef5350"/><path d="M22 40l6-18h-12z" fill="#9aa1a8"/><text x="22" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">N</text></svg>',
-  });
-  host.append(el);
-  const needle = el.querySelector('svg') as SVGElement;
-  const dir = new THREE.Vector3();
-  vp.onFrame(() => {
-    vp.camera.getWorldDirection(dir);
-    const ang = Math.atan2(dir.x, -dir.z);
-    needle.style.transform = `rotate(${-ang}rad)`;
   });
 }
 

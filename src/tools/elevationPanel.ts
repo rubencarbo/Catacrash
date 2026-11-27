@@ -25,6 +25,17 @@ function apply(ed: Editor, geo: GeoRef, sample: Sampler, source: string) {
   toast(`Relieve real aplicado (${source}). Cota de referencia: ${g2.h0} m.${pct ? ` ${pct} % de la escena sin datos (queda a cota 0).` : ''}`, 'info', 6000);
 }
 
+/** Descarga el MDT del IGN para unas coordenadas (o, si falla, el relieve global) y lo aplica. */
+export async function loadRealRelief(ed: Editor, lat: number, lon: number) {
+  const g = ed.store.project.geo ?? geoAt(lat, lon);
+  try {
+    const dem = await fetchIgnDem(g, ed.store.project.terrain.size);
+    apply(ed, g, demSampler(dem, g), 'MDT IGN');
+  } catch {
+    apply(ed, g, await fetchTerrarium(g, ed.store.project.terrain.size), 'relieve global');
+  }
+}
+
 /** Sección «Relieve real» del panel de terreno. */
 export function renderElevation(el: HTMLElement, ed: Editor) {
   const geo = ed.store.project.geo;
