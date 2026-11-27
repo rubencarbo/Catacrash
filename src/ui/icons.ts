@@ -16,6 +16,7 @@ export const ICON = {
   measure: svg('<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>'),
   undo: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/>'),
   redo: svg('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/>'),
+  report: svg('<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 17v-3M12 17v-6M15 17v-4"/>'),
   file: svg('<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>'),
   open: svg('<path d="M3 7v12h18V9h-9l-2-2z"/>'),
   save: svg('<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>'),

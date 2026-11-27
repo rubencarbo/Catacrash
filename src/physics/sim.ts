@@ -448,7 +448,7 @@ function drive(b: Body, t: number) {
 
 // ---------------- simulación ----------------
 
-const MU: Record<SurfaceKind, [number, number]> = {
+export const MU: Record<SurfaceKind, [number, number]> = {
   asfalto: [0.85, 0.55],
   tierra: [0.55, 0.4],
   hierba: [0.45, 0.32],
@@ -973,7 +973,7 @@ export function simulate(input: SimInput): SimResult {
   }
   // 2) Simulación conjunta
   const bodies = input.vehicles.filter((e) => !e.hidden).map((e) => new Body(e));
-  for (const b of bodies) initBody(b, input, syncOffsets.get(b.id) ?? (b.e.drive ? 0 : null));
+  for (const b of bodies) initBody(b, input, syncOffsets.get(b.id) ?? (b.e.drive ? (b.e.drive.startS ?? 0) : null));
   const pairs = new Map<string, PairState>();
   const contacts: SimContact[] = [];
   let step = 0;

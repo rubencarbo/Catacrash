@@ -42,8 +42,8 @@ export class World {
   onRebuilt: (() => void) | null = null;
 
   constructor(
-    private store: Store,
-    private vp: Viewport,
+    readonly store: Store,
+    readonly vp: Viewport,
   ) {
     vp.scene.add(this.root);
     this.createTerrain();

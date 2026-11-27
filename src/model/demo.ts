@@ -169,11 +169,11 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
   const leon = specFromRecord({ marca: 'Seat', modelo: 'Leon', generacion: 'Seat Leon III', desde: 2012, hasta: 2016, carroceria: 'Hatchback', masa: 1346, mma: 1910, L: 4271, W: 1816, H: 1435, batalla: 2631, viaD: 1536, viaT: 1510, traccion: 'Tracción delantera', neumaticos: '225/40 R18', fuente: 'https://www.auto-data.net/es/seat-leon-iii-cupra-2.0-tsi-290hp-dsg-22733' });
   const ateca = specFromRecord({ marca: 'Seat', modelo: 'Ateca', generacion: 'Seat Ateca I', desde: 2016, hasta: 2020, carroceria: 'SUV', masa: 1466, mma: 2080, L: 4363, W: 1841, H: 1611, batalla: 2630, viaD: 1572, viaT: 1544, volD: 868, volT: 865, traccion: 'Tracción en todas las ruedas (4x4)', neumaticos: '215/50 R18', fuente: 'https://www.auto-data.net/es/seat-ateca-i-2.0-tsi-190hp-4drive-dsg-51365' });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -4.4, z: 7.8, heading: 323, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
+    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -4.7, z: 7.2, heading: 4, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
     damage: [],
   });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -0.2, z: 4.9, heading: 2, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
+    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -0.3, z: 5.0, heading: 3, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
     damage: [],
   });
 
@@ -189,11 +189,39 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
       const q = S[k];
       return { x: q.x - q.tz * o, z: q.z + q.tx * o, h: null };
     };
+    // ruta densa (un punto cada 6 m) siguiendo la carretera con un desplazamiento lateral que varía
+    // suavemente entre las claves [s relativo al impacto, desplazamiento]
+    const lanePath = (keys: [number, number][]): CtrlPoint[] => {
+      const sMax = S[S.length - 1].s;
+      const dir = Math.sign(keys[keys.length - 1][0] - keys[0][0]);
+      const out: CtrlPoint[] = [];
+      for (let d = keys[0][0]; dir > 0 ? d <= keys[keys.length - 1][0] + 1e-6 : d >= keys[keys.length - 1][0] - 1e-6; d += 6 * dir) {
+        const sv = sImp + d;
+        if (sv < 0 || sv > sMax) continue;
+        let k = 0;
+        while (k < keys.length - 2 && (dir > 0 ? keys[k + 1][0] < d : keys[k + 1][0] > d)) k++;
+        const [d0, o0] = keys[k];
+        const [d1, o1] = keys[k + 1];
+        const u = Math.min(1, Math.max(0, (d - d0) / (d1 - d0 || 1)));
+        out.push(at(sv, o0 + (o1 - o0) * u * u * (3 - 2 * u)));
+      }
+      return out;
+    };
+    // la bionda sigue el borde de la calzada por el lado del barranco (5 m al este del eje)
+    const gr = E.find((e) => e.kind === 'linear' && e.name === 'Bionda lado barranco');
+    if (gr && gr.kind === 'linear') {
+      const gp: CtrlPoint[] = [];
+      for (let sv = 0; sv <= S[S.length - 1].s; sv += 6) {
+        const q = at(sv, -5);
+        if (q.z >= -40 && q.z <= 82) gp.push(q);
+      }
+      gr.points = gp;
+    }
     const A = E.find((e) => e.kind === 'vehicle' && e.label === 'A') as VehicleEntity;
     const B = E.find((e) => e.kind === 'vehicle' && e.label === 'B') as VehicleEntity;
     // A (sentido sur) se va abriendo hacia el carril contrario en la curva
     A.drive = {
-      path: [...(sImp - 220 > 0 ? [at(sImp - 220, 1.75)] : []), at(sImp - 140, 1.75), at(sImp - 90, 1.75), at(sImp - 45, 1.5), at(sImp - 18, 0.2), at(sImp, -1.3), at(sImp + 25, -2.6)],
+      path: lanePath([[-220, 1.75], [-90, 1.75], [-45, 1.5], [-18, 0.2], [0, -1.3], [25, -2.6]]),
       speed: 85,
       sync: true,
       abs: true,
@@ -202,7 +230,7 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
     };
     // B (sentido norte) por su carril: frena a fondo y da un volantazo a la derecha
     B.drive = {
-      path: [...(sImp + 220 < S[S.length - 1].s ? [at(sImp + 220, -1.75)] : []), at(sImp + 140, -1.75), at(sImp + 80, -1.75), at(sImp + 20, -1.75), at(sImp, -1.75), at(sImp - 30, -1.75)],
+      path: lanePath([[220, -1.75], [-30, -1.75]]),
       speed: 60,
       sync: true,
       abs: true,
@@ -286,10 +314,10 @@ function makeSketch(): string | null {
   };
   car(-4.5, -25, Math.PI, 'A1', '#b01c1c', true);
   car(-3.5, 1, Math.PI + 0.25, 'A2', '#b01c1c');
-  car(-4.4, 7.8, (323 * Math.PI) / 180, 'A3', '#b01c1c');
+  car(-4.7, 7.2, (4 * Math.PI) / 180, 'A3', '#b01c1c');
   car(-6.5, 24, -0.25, 'B1', '#0d6b2f', true);
   car(-4.3, 5.2, -0.1, 'B2', '#0d6b2f');
-  car(-0.2, 4.9, (2 * Math.PI) / 180, 'B3', '#0d6b2f');
+  car(-0.3, 5.0, (3 * Math.PI) / 180, 'B3', '#0d6b2f');
   // Trayectorias
   pen('#b01c1c', 2.5);
   curve([[-4.5, -22], [-3.5, -12], [-2.8, -3]]);

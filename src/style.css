@@ -1194,3 +1194,230 @@ textarea {
   color: var(--muted);
   border-bottom-style: dashed;
 }
+
+/* informe */
+.report-card {
+  width: min(960px, 95vw);
+  max-height: 92vh;
+}
+.report-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--line-2);
+  padding-bottom: 10px;
+}
+.report-sec {
+  margin-top: 18px;
+}
+.report-sec h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.report-sec p {
+  line-height: 1.5;
+  margin: 6px 0;
+}
+.report-list li,
+.report-factors li,
+.report-alts li {
+  margin: 5px 0;
+  line-height: 1.45;
+}
+.report-factors,
+.report-alts {
+  list-style: none;
+  padding: 0;
+}
+.report-factors .lv,
+.report-alts .mark {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-right: 8px;
+  border: 1px solid var(--line-2);
+}
+.report-factors .lv-alto .lv {
+  border-color: #e57373;
+  color: #e57373;
+}
+.report-factors .lv-medio .lv {
+  border-color: #ffb74d;
+  color: #ffb74d;
+}
+.report-factors .lv-info .lv {
+  color: var(--muted);
+}
+.report-alts .yes .mark {
+  border-color: #81c784;
+  color: #81c784;
+}
+.report-alts .no .mark {
+  border-color: #e57373;
+  color: #e57373;
+}
+.report-table th {
+  white-space: nowrap;
+}
+.report-table td {
+  white-space: normal;
+}
+.report-table.chrono td:first-child {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  width: 1%;
+}
+.report-table .dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.report-imgs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.report-imgs figure {
+  margin: 0;
+}
+.report-imgs img {
+  width: 100%;
+  border-radius: 6px;
+  display: block;
+}
+.report-imgs figcaption {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.report-foot {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  font-size: 12px;
+}
+.chart-wrap {
+  position: relative;
+}
+.speed-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.speed-chart .grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.speed-chart .zero {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.speed-chart .limit {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 6 4;
+  opacity: 0.7;
+}
+.speed-chart .cross {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.speed-chart .tick {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.speed-chart .lbl {
+  fill: var(--text, #e6e6e6);
+  font-size: 12px;
+  font-weight: 600;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.chart-legend .sw,
+.chart-tip .sw {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.chart-legend .sw.dash {
+  background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 8px);
+}
+.chart-tip {
+  display: none;
+  position: absolute;
+  top: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  pointer-events: none;
+  min-width: 120px;
+}
+
+@media print {
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body > *:not(.report-overlay) {
+    display: none !important;
+  }
+  .report-overlay {
+    position: static !important;
+    inset: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: none !important;
+    display: block !important;
+  }
+  .report-card {
+    width: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    background: #fff !important;
+    color: #000 !important;
+    --muted: #555;
+    --line: #ddd;
+    --line-2: #bbb;
+    --panel: #fff;
+    --text: #000;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .report-sec {
+    break-inside: avoid;
+  }
+  .report-table.chrono tr {
+    break-inside: avoid;
+  }
+  .report-imgs {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.report-table.chrono td {
+  vertical-align: middle;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}

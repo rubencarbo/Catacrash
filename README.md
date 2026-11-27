@@ -35,6 +35,12 @@ Ajustar a los hechos (reconstrucción inversa): cuando no se conocen las velocid
 - Resultado: valores propuestos, margen compatible con la precisión de un croquis y, si las hay, otras combinaciones distintas que también cuadran (la solución no siempre es única). Se aplica con un clic y se puede deshacer.
 - El instante de la frenada solo se busca si hay huella medida: la posición final por sí sola no lo determina.
 
+Informe del accidente (botón del informe en la barra superior): análisis automático de la reconstrucción, orientativo y no pericial.
+- Cronología: acciones de los conductores, inicio de la invasión del carril contrario, momento en que cada conductor puede ver al otro (línea de visión contra el relieve, árboles, edificios y muros), contactos y reposo.
+- Factores: velocidad frente al límite (última señal R-301 que encara el vehículo o límite genérico de la vía), invasión del carril contrario o salida de la calzada, radio de la curva frente a la velocidad (habitual y límite físico), adherencia utilizada, tiempo de reacción (referencia 1 s) y si podía detenerse antes del punto de colisión, firme, luz y niebla.
+- Evitabilidad: vuelve a simular el accidente desde las mismas posiciones cambiando una sola conducta: circular al límite, mantenerse en el carril (y el otro sin tener que esquivar) o frenar 1 s después de poder ver al otro. Dice si el choque se habría evitado y, si no, con qué Δv.
+- Imágenes en planta (antes, impacto, posiciones finales) con trayectorias, velocidades, escala y norte; gráfica de velocidades; narración y conclusión prudente. Se imprime o se guarda en PDF.
+
 Rendimiento: la simulación usa una caché de altura y firme, una rejilla espacial de obstáculos y se detiene cuando todo está en reposo (≈ 30–40 ms por simulación de 16 s con dos vehículos).
 
 La línea de tiempo (0 = impacto) reproduce la simulación a varias velocidades con las velocidades instantáneas, marca acciones y contactos, ofrece cámaras libre, de seguimiento y del conductor y graba vídeo WebM.

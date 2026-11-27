@@ -69,6 +69,8 @@ export interface RoadEntity extends EntityBase {
   profile: RoadProfile;
   /** Jerarquía en cruces: 0 secundaria, 1 normal, 2 principal. La de mayor rango manda en el solape. */
   priority?: number;
+  /** Velocidad máxima genérica de la vía (km/h); las señales R-301 la sustituyen donde las haya. */
+  limit?: number | null;
 }
 
 export type AreaMaterial = 'asfalto' | 'hormigon' | 'adoquin' | 'acera' | 'tierra' | 'grava' | 'hierba' | 'cebreado';
@@ -302,6 +304,8 @@ export interface Drive {
   showFinal?: boolean;
   /** Longitud de la huella de frenada medida en el lugar antes del impacto (m), si la hay. */
   skidObs?: number | null;
+  /** Punto de salida sobre la ruta (m) cuando no se sincroniza (lo usan las simulaciones alternativas). */
+  startS?: number;
 }
 
 export interface VehicleEntity extends EntityBase {

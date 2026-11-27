@@ -23,7 +23,9 @@ import { Inspector } from './ui/inspector';
 import { Outliner } from './ui/outliner';
 import { Player } from './anim/player';
 import { TimelineBar } from './ui/timeline';
+import { openReport } from './ui/reportDialog';
 import { simulate as __sim } from './physics/sim';
+import { analyze as __an } from './analysis/analyze';
 import { candidateParams as __cp, evaluate as __ev, fit as __fit } from './physics/fit';
 
 async function boot() {
@@ -82,7 +84,7 @@ async function boot() {
 
   document.getElementById('loading')?.remove();
   if (notice) setTimeout(() => toast(notice), 600);
-  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player, simulate: __sim, fitTools: { evaluate: __ev, candidateParams: __cp, fit: __fit } };
+  (window as unknown as { catacrash: unknown }).catacrash = { store, vp, world, ed, THREE, player, simulate: __sim, fitTools: { evaluate: __ev, candidateParams: __cp, fit: __fit }, analyze: __an };
 }
 
 function buildToolbar(ed: Editor) {
@@ -278,6 +280,7 @@ function buildTopbar(ed: Editor, store: Store, world: World) {
         ed.vp.renderer.domElement.toBlob((b) => b && download('captura.png', b, 'image/png'));
       },
     }),
+    h('button', { class: 'icon-btn', title: 'Informe del accidente: cronología, causas y evitabilidad', html: ICON.report, onclick: () => openReport(ed) }),
     h('span', { class: 'spacer' }),
     h(
       'div',
