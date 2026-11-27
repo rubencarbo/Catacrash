@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import type { Change, Store } from '../model/store';
-import type { AreaEntity, Entity, LinearEntity, OverlayEntity, PropEntity, RiverEntity, RoadEntity, RoundaboutEntity, VehicleEntity } from '../model/types';
+import type { AreaEntity, Entity, LinearEntity, MarkRole, OverlayEntity, PropEntity, RiverEntity, RoadEntity, RoundaboutEntity, VehicleEntity } from '../model/types';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { buildVehicle } from './vehicle3d';
 import { buildSkids, type Skids } from '../anim/skids';
 import { frameAt, simulate, type Frame, type Obstacle, type SimInput, type SimResult, type SurfaceKind } from '../physics/sim';
 import { SurfaceCache } from '../physics/surfaceCache';
+import { applyAllMarks, markList } from '../physics/marks';
+import { Path } from '../physics/path';
 import { linearSamples } from './linear';
 import { areaGeometry, areaShaper, buildArea, type AreaGeom } from './area';
 import { roadFootprint, type Footprint } from './footprint';
@@ -229,6 +231,8 @@ export class World {
     }
     this.refreshOverlays();
     this.applyEnv();
+    // recorridos deducidos de las posiciones del croquis (siguen a la carretera si cambia)
+    applyAllMarks(this, p);
     this.runSim();
   }
 
@@ -491,18 +495,44 @@ export class World {
     // Posición final observada (croquis), para comparar con el reposo simulado
     this.removeGhosts(e.id);
     const ghosts = new THREE.Group();
-    if (this.isDriven(e) && e.drive!.showFinal) ghosts.add(this.makeGhost(e, { x: e.x, z: e.z, h: e.heading }, 'final'));
-    for (const pn of e.pins ?? []) ghosts.add(this.makeGhost(e, pn, `t = ${pn.t < 0 ? '−' : '+'}${Math.abs(pn.t).toFixed(2).replace('.', ',')} s`));
+    const marks = markList(e);
+    if (marks.length) {
+      // posiciones del croquis (A1, A2, A3…): siempre visibles, como en el atestado
+      for (const mk of marks) {
+        const g = this.makeGhost(e, mk.pose, mk.label, mk.role);
+        g.userData.mark = mk.key;
+        g.traverse((c) => (c.userData.mark = mk.key));
+        ghosts.add(g);
+      }
+      // recorrido deducido (punteado)
+      if (e.drive && e.drive.path.length > 1) {
+        const P = new Path(e.drive.path);
+        const pts: THREE.Vector3[] = [];
+        for (let s = 0; s <= P.length; s += 1.5) {
+          const [x, z] = P.point(s);
+          pts.push(new THREE.Vector3(x, this.surfaceHeight(x, z) + 0.08, z));
+        }
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: e.color, dashSize: 0.8, gapSize: 0.6, transparent: true, opacity: 0.7, depthTest: false }));
+        line.computeLineDistances();
+        line.renderOrder = 7;
+        line.userData.routeLine = true;
+        ghosts.add(line);
+      }
+      ghosts.userData.always = true;
+    } else {
+      if (this.isDriven(e) && e.drive!.showFinal) ghosts.add(this.makeGhost(e, { x: e.x, z: e.z, h: e.heading }, 'final observada'));
+      for (const pn of e.pins ?? []) ghosts.add(this.makeGhost(e, pn, `t = ${pn.t < 0 ? '−' : '+'}${Math.abs(pn.t).toFixed(2).replace('.', ',')} s`));
+    }
     if (ghosts.children.length) {
-      ghosts.visible = this.store.selection?.id === e.id;
       this.root.add(ghosts);
       this.ghosts.set(e.id, ghosts);
+      this.styleGhosts(e.id, this.store.selection?.id ?? null);
     }
     this.placeVehicle(wrap, e);
     return wrap;
   }
 
-  private makeGhost(e: VehicleEntity, pose: { x: number; z: number; h: number }, tag: string) {
+  private makeGhost(e: VehicleEntity, pose: { x: number; z: number; h: number }, tag: string, role?: MarkRole) {
     const sp = e.spec;
     const g = new THREE.Group();
     const box = new THREE.BoxGeometry(sp.W, sp.H * 0.9, sp.L);
@@ -515,8 +545,8 @@ export class World {
     nose.position.set(0, sp.H * 0.95, -sp.L / 2 + 0.3);
     g.add(edges, fill, nose);
     const div = document.createElement('div');
-    div.className = 'label ghost-tag';
-    div.textContent = `${e.label} ${tag === 'final' ? 'final observada' : tag}`;
+    div.className = 'label ghost-tag' + (role ? ` mark-${role}` : '');
+    div.textContent = role ? `${tag} · ${role === 'ini' ? 'inicial' : role === 'col' ? 'choque' : role === 'fin' ? 'final' : 'paso'}` : `${e.label} ${tag}`;
     div.style.setProperty('--chip', e.color);
     const lbl = new CSS2DObject(div);
     lbl.position.set(0, sp.H + 0.3, 0);
@@ -538,14 +568,40 @@ export class World {
     this.ghosts.delete(id);
   }
 
-  /** Solo se ven los contornos de las posiciones observadas del vehículo seleccionado. */
+  /**
+   * Contornos de posiciones: los del croquis se ven siempre (más tenues si el vehículo no está
+   * seleccionado; su recorrido, solo al seleccionarlo); los demás, solo con el vehículo seleccionado.
+   */
   showGhostFor(id: string | null) {
-    for (const [gid, g] of this.ghosts) {
-      g.visible = gid === id;
-      g.traverse((c) => {
-        if (c instanceof CSS2DObject) c.element.style.display = gid === id ? '' : 'none';
-      });
-    }
+    for (const gid of this.ghosts.keys()) this.styleGhosts(gid, id);
+  }
+  private styleGhosts(gid: string, selId: string | null) {
+    const g = this.ghosts.get(gid);
+    if (!g) return;
+    const sel = gid === selId;
+    const always = !!g.userData.always;
+    g.visible = always || sel;
+    g.traverse((c) => {
+      if (c instanceof CSS2DObject) c.element.style.display = g.visible ? '' : 'none';
+      if (c.userData.routeLine) c.visible = sel;
+      const m = (c as THREE.Mesh).material as THREE.Material & { opacity?: number; userData: { base?: number } };
+      if (m && 'opacity' in m && !c.userData.routeLine) {
+        m.userData.base ??= m.opacity;
+        m.opacity = (m.userData.base ?? 1) * (sel || !always ? 1 : 0.55);
+      }
+    });
+  }
+
+  /** Contorno de una posición del croquis de un vehículo (para seleccionarla y arrastrarla). */
+  markObject(id: string, key: string): THREE.Object3D | undefined {
+    const g = this.ghosts.get(id);
+    return g?.children.find((c) => c.userData.mark === key);
+  }
+  /** Contornos de posiciones del croquis de todos los vehículos (para seleccionarlos con el ratón). */
+  markObjects(): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    for (const g of this.ghosts.values()) if (g.visible) for (const c of g.children) if (c.userData.mark) out.push(c);
+    return out;
   }
 
   /** Objeto al que se engancha el gizmo: el propio vehículo en el instante actual. */

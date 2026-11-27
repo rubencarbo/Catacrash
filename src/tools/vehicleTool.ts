@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type { Editor, Tool } from '../editor';
 import { newId } from '../model/store';
-import type { SpecKey, VehicleEntity, VehicleSpec, VehicleType } from '../model/types';
+import type { MarkRole, SpecKey, VehicleEntity, VehicleSpec, VehicleType } from '../model/types';
 import { buildVehicle } from '../scene/vehicle3d';
-import { fmt, h, toast } from '../ui/dom';
+import { clear, fmt, h, toast } from '../ui/dom';
 import { ICON } from '../ui/icons';
 import { headingText, roadHeadings } from './dial';
+import { ROLES } from '../physics/marks';
 import { loadCatalog, loadLibrary, removeFromLibrary, searchCatalog, type SavedVehicle } from '../vehicles/catalog';
 import { completeSpec, genericSpec, parsePastedSpec, specFromRecord, TYPICAL, type CatalogRecord } from '../vehicles/spec';
 import { pickEntity } from './basic';
@@ -84,7 +85,9 @@ export function vehicleTool(ed: Editor): Tool {
       return;
     }
     pending = spec;
+    markFor = null;
     makeGhost();
+    showBanner();
     ed.refreshOptions?.();
   };
 
@@ -106,34 +109,118 @@ export function vehicleTool(ed: Editor): Tool {
     return diff > 90 ? (hdg + 180) % 360 : hdg;
   };
 
-  /** Coloca el vehículo elegido en (x, z) con el rumbo actual. */
+  /** Qué posición del croquis se está colocando y, si es de un vehículo ya creado, de cuál. */
+  let role: MarkRole = 'col';
+  let markFor: string | null = null;
   let aim: { x: number; z: number; dragged: boolean } | null = null;
   let placedAt = 0;
+
+  // Aviso guiado en la escena («¿Dónde estaba A al empezar?»)
+  const banner = h('div', { class: 'guide-banner' });
+  ed.vp.dom.append(banner);
+  const showBanner = () => {
+    clear(banner);
+    if (!pending) {
+      banner.style.display = 'none';
+      return;
+    }
+    const v = markFor ? (ed.store.get(markFor) as VehicleEntity | undefined) : null;
+    const who = v ? v.label : nextLabel(ed);
+    const q: Record<MarkRole, string> = {
+      col: `¿Dónde estaba ${who} en el instante del choque?`,
+      ini: `¿Dónde estaba ${who} al empezar (por ejemplo, cuando apareció el peligro)?`,
+      fin: `¿Dónde quedó ${who} al final?`,
+      mid: `¿Por dónde pasó ${who}? (posición intermedia)`,
+    };
+    banner.append(
+      h('span', { class: `gb-n mark-${role}` }, ROLES[role].n === '·' ? '·' : ROLES[role].n),
+      h('div', {}, h('strong', {}, q[role]), h('span', {}, 'Haz clic en ese sitio. Si pulsas y arrastras, marcas hacia dónde iba. Q/E: girar.')),
+      markFor ? h('button', { class: 'btn small', onclick: () => next(true) }, 'No lo sé · saltar') : '',
+      h('button', { class: 'btn small', onclick: () => stop() }, markFor ? 'Terminar' : 'Cancelar'),
+    );
+    banner.style.display = 'flex';
+  };
+  const stop = () => {
+    pending = null;
+    markFor = null;
+    role = 'col'; // el siguiente vehículo empieza por su posición en el choque
+    clearGhost();
+    showBanner();
+    ed.refreshOptions?.();
+  };
+  /** Siguiente posición que falta del mismo vehículo (orden: ② choque → ① inicial → ③ final). */
+  const next = (skipped = false) => {
+    const v = markFor ? (ed.store.get(markFor) as VehicleEntity | undefined) : null;
+    if (!v) return stop();
+    const order: MarkRole[] = ['col', 'ini', 'fin'];
+    const i = order.indexOf(role);
+    const rest = order.slice(i + 1).filter((r) => !v.marks?.[r as 'ini' | 'col' | 'fin']);
+    if (role === 'mid' || !rest.length) {
+      const id = v.id;
+      stop();
+      ed.setTool('select');
+      ed.select(id);
+      toast(`${v.label} colocado. ${skipped ? '' : ''}Puedes mover o girar cualquiera de sus posiciones, o añadir otro vehículo.`, 'info', 6000);
+      return;
+    }
+    role = rest[0];
+    if (role === 'ini' && v.marks?.col) heading = v.marks.col.h;
+    if (role === 'fin' && v.marks?.col) heading = v.marks.col.h;
+    showBanner();
+    ed.refreshOptions?.();
+  };
+  ed.placeMark = (id, r) => {
+    const v = ed.store.get(id) as VehicleEntity | undefined;
+    if (!v) return;
+    ed.setTool('vehicle');
+    markFor = id;
+    role = r;
+    pending = v.spec;
+    heading = v.marks?.col?.h ?? v.marks?.ini?.h ?? v.heading;
+    makeGhost();
+    showBanner();
+    ed.refreshOptions?.();
+  };
+
+  /** Coloca en (x, z) con el rumbo actual: un vehículo nuevo o una posición del que se está colocando. */
   const place = (x: number, z: number) => {
     if (!pending) return;
+    const pose = { x, z, h: heading };
+    if (markFor) {
+      const v = ed.store.get(markFor) as VehicleEntity | undefined;
+      if (!v) return stop();
+      ed.store.begin();
+      ed.commitMark(v, role, pose);
+      next();
+      return;
+    }
     const n = ed.store.project.entities.filter((e) => e.kind === 'vehicle').length;
-      const label = nextLabel(ed);
-      const e: VehicleEntity = {
-        id: newId('v'),
-        kind: 'vehicle',
-        name: `${label} · ${specTitle(pending)}`,
-        label,
-        spec: structuredClone(pending),
-        x,
-        z,
-        heading,
-        color: pending.tipo === 'peaton' ? '#3d6e9e' : COLORS[n % COLORS.length],
-        plate: '',
-        occupants: pending.tipo === 'peaton' ? 0 : 1,
-        cargo: 0,
-        damage: [],
-        photos: [],
-      };
-      ed.store.add(e);
-      pending = null;
-      clearGhost();
-      ed.select(e.id);
-      ed.refreshOptions?.();
+    const label = nextLabel(ed);
+    const e: VehicleEntity = {
+      id: newId('v'),
+      kind: 'vehicle',
+      name: `${label} · ${specTitle(pending)}`,
+      label,
+      spec: structuredClone(pending),
+      x,
+      z,
+      heading,
+      color: pending.tipo === 'peaton' ? '#3d6e9e' : COLORS[n % COLORS.length],
+      plate: '',
+      occupants: pending.tipo === 'peaton' ? 0 : 1,
+      cargo: 0,
+      damage: [],
+      photos: [],
+      marks: {},
+    };
+    ed.store.add(e);
+    ed.store.begin();
+    ed.commitMark(e, role, pose);
+    // y a continuación, las demás posiciones de este vehículo
+    markFor = e.id;
+    pending = e.spec;
+    next();
+    if (pending) makeGhost();
   };
 
   const doSearch = async () => {
@@ -167,6 +254,8 @@ export function vehicleTool(ed: Editor): Tool {
       clearGhost();
       pending = null;
       applyTo = null;
+      markFor = null;
+      banner.style.display = 'none';
     },
     down(ev) {
       // con un vehículo elegido: pulsar fija el sitio y arrastrar marca el sentido de la marcha
@@ -223,10 +312,15 @@ export function vehicleTool(ed: Editor): Tool {
         if (ghost) ghost.rotation.y = (-heading * Math.PI) / 180;
         return true;
       }
+      if (e.key === 'Escape' && markFor) {
+        next(true);
+        return true;
+      }
       if (e.key === 'Escape' && (pending || applyTo)) {
         pending = null;
         applyTo = null;
         clearGhost();
+        showBanner();
         ed.refreshOptions?.();
         return true;
       }
@@ -244,10 +338,27 @@ export function vehicleTool(ed: Editor): Tool {
             { class: 'pending-box' },
             h('strong', {}, specTitle(pending)),
             h('div', { class: 'muted' }, `${fmt(pending.L)} × ${fmt(pending.W)} × ${fmt(pending.H)} m · ${pending.masa.toLocaleString('es-ES')} kg`),
-            h('div', {}, 'Haz clic en la escena para colocarlo. Sobre una carretera se alinea solo con el carril.'),
+            h('div', {}, 'Haz clic en la escena donde estaba (pulsa y arrastra para indicar hacia dónde iba). Sobre una carretera se alinea solo con el carril.'),
             h('button', { class: 'btn small', onclick: () => ((pending = null), clearGhost(), ed.refreshOptions?.()) }, 'Cancelar'),
           ),
         );
+      }
+      // qué posición del croquis se coloca
+      if (!applyTo) {
+        const roleBox = h('div', { class: 'role-box' });
+        roleBox.append(h('div', { class: 'cat-title' }, markFor ? `Posición de ${(ed.store.get(markFor) as VehicleEntity | undefined)?.label ?? ''}` : 'Colocar como'));
+        const row = h('div', { class: 'role-row' });
+        for (const r of ['ini', 'col', 'fin'] as MarkRole[])
+          row.append(
+            h(
+              'button',
+              { class: `role-btn mark-${r}` + (r === role ? ' on' : ''), title: ROLES[r].help, onclick: () => ((role = r), showBanner(), ed.refreshOptions?.()) },
+              h('span', { class: 'rb-n' }, ROLES[r].n),
+              ROLES[r].name,
+            ),
+          );
+        roleBox.append(row, h('p', { class: 'muted' }, `${ROLES[role].long}: ${ROLES[role].help} ${markFor ? '' : 'Después te pediré las demás (puedes saltarlas si no las sabes).'}`));
+        el.append(roleBox);
       }
       const tabs = h('div', { class: 'seg' });
       for (const [k, l] of [

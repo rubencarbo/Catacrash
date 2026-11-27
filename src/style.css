@@ -551,6 +551,8 @@ input[type='range'] {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
 }
 .label.measure {
   background: #0b2530e6;
@@ -567,8 +569,8 @@ input[type='range'] {
 #toasts {
   position: absolute;
   top: 58px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 80px;
+  max-width: min(420px, 60%);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2155,4 +2157,271 @@ textarea {
 }
 .tl-lane.veh .tl-mk {
   transition: top 0.1s;
+}
+
+/* posiciones del croquis */
+:root {
+  --m-ini: #43a047;
+  --m-col: #e53935;
+  --m-fin: #1e88e5;
+  --m-mid: #8d949c;
+}
+.label.ghost-tag.mark-ini {
+  border-color: var(--m-ini);
+  border-style: solid;
+}
+.label.ghost-tag.mark-col {
+  border-color: var(--m-col);
+  border-style: solid;
+}
+.label.ghost-tag.mark-fin {
+  border-color: var(--m-fin);
+  border-style: solid;
+}
+.qb-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--line-2);
+  margin: 0 4px;
+}
+.qb-lab {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.qb-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--m-mid);
+  background: transparent;
+  color: var(--text);
+  font-weight: 800;
+  font-size: 12px;
+  cursor: pointer;
+  margin: 0 1px;
+}
+.qb-chip.mark-ini {
+  border-color: var(--m-ini);
+}
+.qb-chip.mark-col {
+  border-color: var(--m-col);
+}
+.qb-chip.mark-fin {
+  border-color: var(--m-fin);
+}
+.qb-chip.on.mark-ini {
+  background: var(--m-ini);
+}
+.qb-chip.on.mark-col {
+  background: var(--m-col);
+}
+.qb-chip.on.mark-fin {
+  background: var(--m-fin);
+}
+.qb-chip.on.mark-mid {
+  background: var(--m-mid);
+}
+.qb-chip.empty {
+  border-style: dashed;
+  color: var(--muted);
+}
+.qb-chip:hover {
+  transform: scale(1.1);
+}
+.qb-name.mark-ini {
+  color: var(--m-ini);
+}
+.qb-name.mark-col {
+  color: #ff6b66;
+}
+.qb-name.mark-fin {
+  color: #5aa9f0;
+}
+.guide-banner {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 12px;
+  max-width: min(720px, calc(100% - 24px));
+  padding: 10px 14px;
+  background: #15171af5;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px #0009;
+  z-index: 7;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.guide-banner strong {
+  display: block;
+  font-size: 14px;
+}
+.guide-banner span:not(.gb-n) {
+  color: var(--muted);
+  font-size: 12px;
+}
+.gb-n {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 16px;
+  color: #fff;
+  flex: none;
+  background: var(--m-mid);
+}
+.gb-n.mark-ini,
+.rb-n.mark-ini {
+  background: var(--m-ini);
+}
+.gb-n.mark-col {
+  background: var(--m-col);
+}
+.gb-n.mark-fin {
+  background: var(--m-fin);
+}
+.role-box {
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  padding: 8px 10px 4px;
+  margin-bottom: 10px;
+  background: #ffffff06;
+}
+.role-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.role-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.rb-n {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: #fff;
+}
+.role-btn.mark-ini .rb-n {
+  background: var(--m-ini);
+}
+.role-btn.mark-col .rb-n {
+  background: var(--m-col);
+}
+.role-btn.mark-fin .rb-n {
+  background: var(--m-fin);
+}
+.role-btn.on {
+  border-color: var(--accent);
+  background: #f59e0b1a;
+}
+.mark-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+}
+.mark-row {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: #ffffff08;
+}
+.mark-row.empty .rb-n {
+  opacity: 0.45;
+}
+.mark-row .rb-n.mark-mid {
+  background: var(--m-mid);
+}
+.mark-row .rb-n.mark-col {
+  background: var(--m-col);
+}
+.mark-row .rb-n.mark-fin {
+  background: var(--m-fin);
+}
+.mr-name {
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+}
+.mr-name small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.steps-pop p b {
+  color: var(--text);
+}
+.steps-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 4px 0 8px;
+}
+.steps-roles span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.steps-roles .rb-n {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  flex: none;
+}
+.steps-roles .rb-n.mark-col {
+  background: var(--m-col);
+}
+.steps-roles .rb-n.mark-fin {
+  background: var(--m-fin);
+}
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 10px;
+}
+.sl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sl-row .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.sl-row strong {
+  min-width: 22px;
+}
+.steps-pop {
+  max-height: calc(100% - 240px);
+  overflow: auto;
+}
+/* el aviso guiado no debe tapar la escena: los clics pasan, salvo en sus botones */
+.guide-banner {
+  pointer-events: none;
+}
+.guide-banner button {
+  pointer-events: auto;
 }

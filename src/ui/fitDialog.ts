@@ -3,6 +3,7 @@ import type { VehicleEntity } from '../model/types';
 import { soloSpeedAt } from '../physics/sim';
 import { applyParams, candidateParams, evaluate, fit, usesImpactSpeed, type FitParam, type FitProblem, type FitResult, type FitTarget, type TargetError } from '../physics/fit';
 import { clear, fmt, h, toast } from './dom';
+import { applyAllMarks } from '../physics/marks';
 
 interface ParamRow {
   p: FitParam;
@@ -378,6 +379,7 @@ export function openFitDialog(ed: Editor, focusId?: string, opts: { autoRun?: bo
           const v = store.get(q.veh) as VehicleEntity | undefined;
           if (!v?.drive) return;
           const x = q.kind === 'speed' || q.unit === '°' ? Math.round(r.best.x[i] * 10) / 10 : Math.round(r.best.x[i] * 100) / 100;
+          v.drive.speedAuto = false; // la velocidad la fija el ajuste
           if (q.kind === 'speed') v.drive.speed = x;
           else if (q.kind === 'impact') v.drive.speed = Math.round((solved.find((o) => o.id === v.id)?.drive?.speed ?? v.drive.speed) * 10) / 10;
           else {
@@ -395,6 +397,8 @@ export function openFitDialog(ed: Editor, focusId?: string, opts: { autoRun?: bo
           live.drive.skidObs = o.skid;
           if (o.final) live.drive.showFinal = true;
         }
+        // con posiciones del croquis, el inicio se recalcula con las nuevas velocidades
+        applyAllMarks(ed.world, store.project);
         // que la animación llegue hasta el reposo
         const restEnd = Math.ceil(Math.max(...rests) + 1);
         const tl = store.project.timeline ?? { start: range.start, end: range.end };

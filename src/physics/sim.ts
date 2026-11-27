@@ -951,15 +951,16 @@ export function simulate(input: SimInput): SimResult {
   let cache = syncCaches.get(input.surfaceH);
   if (!cache) syncCaches.set(input.surfaceH, (cache = new Map()));
   for (const e of input.vehicles) {
-    if (!e.drive || !e.drive.sync || !input.impact || e.drive.path.length < 2) continue;
-    const key = JSON.stringify([e.spec, e.drive.path, e.drive.speed, e.drive.abs, e.drive.events, input.start, input.impact, input.wet]);
+    const ip = e.drive?.syncPoint ?? input.impact;
+    if (!e.drive || !e.drive.sync || !ip || e.drive.path.length < 2) continue;
+    const key = JSON.stringify([e.spec, e.drive.path, e.drive.speed, e.drive.abs, e.drive.events, input.start, ip, input.wet]);
     const hit = cache.get(key);
     if (hit !== undefined) {
       syncOffsets.set(e.id, hit);
       continue;
     }
     const path = new Path(e.drive.path);
-    const sImp = path.project(input.impact.x, input.impact.z);
+    const sImp = path.project(ip.x, ip.z);
     let s0 = sImp - (e.drive.speed / 3.6) * Math.max(0, -input.start) - e.spec.L;
     for (let it = 0; it < 5; it++) {
       const sf = frontSAtZero(e, input, s0);

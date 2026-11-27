@@ -223,6 +223,7 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
     A.drive = {
       path: lanePath([[-220, 1.75], [-90, 1.75], [-45, 1.5], [-18, 0.2], [0, -1.3], [25, -2.6]]),
       speed: 85,
+      speedAuto: false,
       sync: true,
       abs: true,
       events: [{ id: newId('ev'), t: -0.25, action: 'frenar', value: 1 }],
@@ -232,16 +233,28 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
     B.drive = {
       path: lanePath([[220, -1.75], [-30, -1.75]]),
       speed: 60,
+      speedAuto: false,
       sync: true,
       abs: true,
       events: [
         { id: newId('ev'), t: -0.85, action: 'frenar', value: 1 },
-        { id: newId('ev'), t: -0.8, action: 'girar', value: 6 },
       ],
       showFinal: true,
     };
     p.impact = at(sImp, -1.2);
     p.timeline = { start: -4, end: 4 };
+    // posiciones del croquis (A1/A2/A3, B1/B2/B3): de ellas se deduce el recorrido al cargar
+    A.marks = {
+      ini: { x: -34.52, z: -87.67, h: 154.3 },
+      mid: [{ x: -9.57, z: -34.2, h: 161.9 }],
+      col: { x: -2.45, z: 0.12, h: 177.7 },
+      fin: { x: -4.7, z: 7.2, h: 4 },
+    };
+    B.marks = {
+      ini: { x: -21.62, z: 65.33, h: 30.5 },
+      col: { x: -1.34, z: 4.34, h: 14.8 },
+      fin: { x: -0.3, z: 5, h: 3 },
+    };
   }
 
   p.entities = E;

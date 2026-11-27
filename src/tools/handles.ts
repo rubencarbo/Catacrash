@@ -79,7 +79,7 @@ export class Handles {
       const y = this.world.surfaceHeight(e.cx, e.cz) + 0.6;
       this.add('center', 0, new THREE.Vector3(e.cx, y, e.cz));
       this.add('radius', 0, new THREE.Vector3(e.cx + e.radius, t.height(e.cx + e.radius, e.cz) + 0.5, e.cz));
-    } else if (e.kind === 'vehicle' && e.drive && e.drive.path.length > 1) {
+    } else if (e.kind === 'vehicle' && e.drive && e.drive.path.length > 1 && !e.marks) {
       // ruta prevista del conductor
       const P = e.drive.path;
       const pts = P.map((p) => new THREE.Vector3(p.x, this.world.surfaceHeight(p.x, p.z) + 0.35, p.z));

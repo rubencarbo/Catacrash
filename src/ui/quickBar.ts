@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Editor } from '../editor';
-import type { VehicleEntity } from '../model/types';
+import type { MarkRole, VehicleEntity } from '../model/types';
+import { applyAllMarks, getMark, ROLES, setMark } from '../physics/marks';
 import { openFitDialog } from './fitDialog';
 import { alignToRoad, giveMotion, rotateBy } from './actions';
 import { clear, h } from './dom';
@@ -51,16 +52,58 @@ export function buildQuickBar(ed: Editor, host: HTMLElement) {
     rot.style.display = 'grid';
     shownFor = e.id;
     const b = (icon: string, title: string, fn: () => void, label?: string) => h('button', { class: 'qb-btn' + (label ? ' text' : ''), title, html: icon + (label ? `<span>${label}</span>` : ''), onclick: fn });
-    el.append(
-      h('span', { class: 'qb-name' }, e.kind === 'vehicle' ? (e as VehicleEntity).label || e.name : e.name),
-      b(IC.left, 'Girar 15° a la izquierda', () => rotateBy(ed, e.id, -15)),
-      b(IC.right, 'Girar 15° a la derecha', () => rotateBy(ed, e.id, 15)),
-    );
+    const sep = () => h('span', { class: 'qb-sep' });
+    // posición del croquis seleccionada
+    if (e.kind === 'vehicle' && sel?.mark) {
+      const v = e as VehicleEntity;
+      const role = (sel.mark.startsWith('mid') ? 'mid' : sel.mark) as MarkRole;
+      el.append(
+        h('span', { class: `qb-name mark-${role}` }, `${v.label}${ROLES[role].n === '·' ? '·' : ROLES[role].n} · ${ROLES[role].name}`),
+        b(IC.left, 'Girar 15° a la izquierda', () => rotateBy(ed, e.id, -15)),
+        b(IC.right, 'Girar 15° a la derecha', () => rotateBy(ed, e.id, 15)),
+        b(IC.flip, 'Invertir el sentido (180°)', () => rotateBy(ed, e.id, 180)),
+        b(IC.align, 'Alinear con la carretera', () => alignToRoad(ed, e.id)),
+        sep(),
+        h('span', { class: 'qb-lab' }, 'Es la posición'),
+        ...(['ini', 'col', 'fin', 'mid'] as MarkRole[]).map((r) =>
+          h('button', { class: `qb-chip mark-${r}` + (r === role ? ' on' : ''), title: `${ROLES[r].long}: ${ROLES[r].help}`, onclick: () => r !== role && changeRole(ed, v, sel.mark!, r) }, ROLES[r].n === '·' ? '·' : ROLES[r].n),
+        ),
+        sep(),
+        h('button', { class: 'qb-btn', title: `Seleccionar el vehículo ${v.label}`, onclick: () => ed.select(v.id) }, 'Vehículo'),
+        h('button', { class: 'qb-btn danger', title: 'Quitar esta posición (Supr)', html: IC.del, onclick: () => ed.deleteSelection() }),
+      );
+      el.style.display = 'flex';
+      return;
+    }
+    el.append(h('span', { class: 'qb-name' }, e.kind === 'vehicle' ? (e as VehicleEntity).label || e.name : e.name));
     if (e.kind === 'vehicle') {
       const v = e as VehicleEntity;
-      el.append(b(IC.flip, 'Invertir el sentido de la marcha (180°)', () => rotateBy(ed, e.id, 180)), b(IC.align, 'Alinear con la carretera', () => alignToRoad(ed, e.id)));
-      if (!v.drive) el.append(b(IC.go, 'Darle movimiento: ruta por su carril y velocidad (luego la ajustas)', () => giveMotion(ed, v), 'Mover'));
-      else el.append(b(IC.fit, 'Averiguar velocidad y maniobra a partir de lo observado', () => openFitDialog(ed, e.id), 'Ajustar'));
+      // posiciones del croquis: ① ② ③ (rellenas si están puestas)
+      el.append(h('span', { class: 'qb-lab' }, 'Posiciones'));
+      for (const r of ['ini', 'col', 'fin'] as MarkRole[]) {
+        const set = !!v.marks?.[r as 'ini' | 'col' | 'fin'];
+        el.append(
+          h(
+            'button',
+            {
+              class: `qb-chip mark-${r}` + (set ? ' on' : ' empty'),
+              title: set ? `${ROLES[r].long}: seleccionarla para moverla o girarla` : `Colocar la ${ROLES[r].long.toLowerCase()}: ${ROLES[r].help}`,
+              onclick: () => (set ? ed.selectMark(v.id, r) : ed.placeMark?.(v.id, r)),
+            },
+            ROLES[r].n,
+          ),
+        );
+      }
+      el.append(h('button', { class: 'qb-chip mark-mid empty', title: 'Añadir una posición intermedia (por dónde pasó)', onclick: () => ed.placeMark?.(v.id, 'mid') }, '+'), sep());
+      el.append(
+        b(IC.left, 'Girar 15° a la izquierda', () => rotateBy(ed, e.id, -15)),
+        b(IC.right, 'Girar 15° a la derecha', () => rotateBy(ed, e.id, 15)),
+        b(IC.flip, 'Invertir el sentido de la marcha (180°)', () => rotateBy(ed, e.id, 180)),
+      );
+      if (!v.drive && !v.marks) el.append(b(IC.go, 'Darle movimiento: ruta por su carril y velocidad (luego la ajustas)', () => giveMotion(ed, v), 'Mover'));
+      else if (v.drive) el.append(b(IC.fit, 'Averiguar la velocidad a partir de lo observado (posición final, daños, huellas)', () => openFitDialog(ed, e.id), 'Ajustar'));
+    } else {
+      el.append(b(IC.left, 'Girar 15° a la izquierda', () => rotateBy(ed, e.id, -15)), b(IC.right, 'Girar 15° a la derecha', () => rotateBy(ed, e.id, 15)));
     }
     el.append(
       b(IC.copy, 'Duplicar (Ctrl+D)', () => ed.duplicateSelection()),
@@ -75,7 +118,7 @@ export function buildQuickBar(ed: Editor, host: HTMLElement) {
   const v = new THREE.Vector3();
   ed.vp.onFrame(() => {
     if (!shownFor) return;
-    const obj = ed.world.objects.get(shownFor);
+    const obj = ed.selectedObject();
     if (!obj || !obj.visible) {
       el.style.visibility = 'hidden';
       rot.style.visibility = 'hidden';
@@ -115,4 +158,21 @@ export function buildQuickBar(ed: Editor, host: HTMLElement) {
       rot.style.top = `${ky2 + (dy / d) * 30 - 17}px`;
     } else rot.style.visibility = 'hidden';
   });
+}
+
+/** Cambia el papel de una posición (p. ej. de intermedia a inicial); si ya había una, se intercambian. */
+function changeRole(ed: Editor, v: VehicleEntity, key: string, role: MarkRole) {
+  const pose = getMark(v, key);
+  if (!pose) return;
+  ed.store.begin();
+  const target = role === 'mid' ? null : getMark(v, role);
+  setMark(v, key, null);
+  if (target && !key.startsWith('mid')) setMark(v, key, target);
+  else if (target) setMark(v, 'mid', target);
+  setMark(v, role, pose);
+  applyAllMarks(ed.world, ed.store.project);
+  ed.store.end();
+  ed.store.notify({ type: 'env' });
+  const newKey = role === 'mid' ? `mid:${(v.marks?.mid?.length ?? 1) - 1}` : role;
+  ed.selectMark(v.id, newKey);
 }

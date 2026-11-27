@@ -1,12 +1,13 @@
 import type { Editor } from '../editor';
 import { newId } from '../model/store';
-import type { DamageSide, DamageZone, DriverEvent, RoadEntity, SpecKey, VehicleEntity, VehicleType } from '../model/types';
+import type { DamageSide, DamageZone, DriverEvent, MarkRole, RoadEntity, SpecKey, VehicleEntity, VehicleType } from '../model/types';
 import { readImage } from '../tools/overlayTool';
 import { specTitle } from '../tools/vehicleTool';
 import { saveToLibrary } from '../vehicles/catalog';
 import { respec, TYPICAL } from '../vehicles/spec';
 import { fmt, h, toast } from './dom';
 import { openFitDialog } from './fitDialog';
+import { applyAllMarks, getMark, ROLES, setMark, timeAtMark } from '../physics/marks';
 import { frameAt } from '../physics/sim';
 import { laneRoute } from '../physics/lane';
 import { ICON } from './icons';
@@ -186,6 +187,7 @@ export function renderVehicleInspector(el: HTMLElement, ed: Editor, e: VehicleEn
     ),
   );
 
+  renderMarks(el, ed, e);
   renderDrive(el, ed, e);
   renderPins(el, ed, e);
   if (sp.tipo !== 'peaton') renderDamage(el, ed, e, numberField);
@@ -563,6 +565,109 @@ function renderPins(el: HTMLElement, ed: Editor, e: VehicleEntity) {
         h('span', { class: 'muted' }, err),
         h('button', { class: 'icon-btn small danger', title: 'Quitar esta posición observada', html: ICON.trash, onclick: () => change(() => (e.pins = (e.pins ?? []).filter((q) => q.id !== pn.id))) }),
       ),
+    );
+  }
+}
+
+// ---------------- Posiciones del croquis ----------------
+
+function renderMarks(el: HTMLElement, ed: Editor, e: VehicleEntity) {
+  const m = e.marks;
+  el.append(h('div', { class: 'cat-title' }, 'Posiciones del croquis'));
+  el.append(
+    h(
+      'p',
+      { class: 'muted' },
+      'Como en el croquis del atestado: ① dónde estaba al empezar, ② dónde estaba en el choque y ③ dónde quedó. La app traza su recorrido siguiendo la carretera y hace que esté en ② justo en el instante del impacto.',
+    ),
+  );
+  const edit = (fn: () => void) => {
+    ed.store.edit(() => {
+      fn();
+      applyAllMarks(ed.world, ed.store.project);
+    }, { type: 'env' });
+  };
+  const rows = h('div', { class: 'mark-rows' });
+  const row = (key: string, role: MarkRole, label: string) => {
+    const pose = getMark(e, key);
+    const t = pose ? timeAtMark(ed.world, e, pose) : null;
+    rows.append(
+      h(
+        'div',
+        { class: 'mark-row' + (pose ? '' : ' empty') },
+        h('span', { class: `rb-n mark-${role}` }, ROLES[role].n),
+        h('span', { class: 'mr-name' }, label, h('small', {}, pose ? (t !== null ? `pasa en t = ${t < 0 ? '−' : '+'}${fmt(Math.abs(t), 1)} s` : 'colocada') : 'sin colocar')),
+        pose
+          ? h('button', { class: 'btn small', onclick: () => (ed.selectMark(e.id, key), ed.player?.setTime(t ?? ed.player.time)) }, 'Ver')
+          : h('button', { class: 'btn small primary', onclick: () => ed.placeMark?.(e.id, role) }, 'Colocar'),
+        pose ? h('button', { class: 'icon-btn small danger', title: 'Quitar esta posición', html: ICON.trash, onclick: () => edit(() => setMark(e, key, null)) }) : '',
+      ),
+    );
+  };
+  row('ini', 'ini', 'Inicial');
+  (m?.mid ?? []).forEach((_, i) => row(`mid:${i}`, 'mid', `Intermedia ${i + 1}`));
+  row('col', 'col', 'En el choque');
+  row('fin', 'fin', 'Final');
+  el.append(rows, h('button', { class: 'btn small', onclick: () => ed.placeMark?.(e.id, 'mid') }, '+ Posición intermedia (por dónde pasó)'));
+  if (m && (m.ini || m.col) && e.drive) {
+    const d = e.drive;
+    const braked = d.events.some((x) => x.action === 'frenar' && x.t < 0);
+    el.append(
+      h(
+        'div',
+        { class: 'grid2' },
+        h(
+          'label',
+          { class: 'field' },
+          h('span', {}, m.col ? 'Velocidad hasta el choque' : 'Velocidad'),
+          h('input', {
+            type: 'number',
+            step: 1,
+            min: 1,
+            value: Math.round(d.speed),
+            onchange: (ev: Event) =>
+              edit(() => {
+                d.speed = Math.max(1, Number((ev.target as HTMLInputElement).value));
+                d.speedAuto = false;
+              }),
+          }),
+          h('output', {}, 'km/h'),
+        ),
+      ),
+      m.ini && m.col
+        ? h(
+            'label',
+            { class: 'check' },
+            h('input', { type: 'checkbox', checked: d.speedAuto !== false, onchange: (ev: Event) => edit(() => (d.speedAuto = (ev.target as HTMLInputElement).checked)) }),
+            'Calculada para que esté en ① al empezar (desmárcalo si sabes la velocidad)',
+          )
+        : '',
+      m.col
+        ? h(
+            'label',
+            { class: 'check' },
+            h('input', {
+              type: 'checkbox',
+              checked: braked,
+              onchange: (ev: Event) =>
+                edit(() => {
+                  d.events = d.events.filter((x) => !(x.action === 'frenar' && x.t < 0));
+                  if ((ev.target as HTMLInputElement).checked) d.events.push({ id: newId('ev'), t: -1, action: 'frenar', value: 1 });
+                }),
+            }),
+            'Frenó antes del choque (1 s antes; muévelo en la barra de tiempo)',
+          )
+        : '',
+      h(
+        'p',
+        { class: 'muted' },
+        m.ini && m.col
+          ? 'La secuencia empieza cuando el primer vehículo está en su posición ①; cambia la velocidad si quieres que llegue antes o después.'
+          : m.col
+            ? 'Sin posición ①: llega por su carril a esta velocidad.'
+            : '',
+      ),
+      m.fin && m.col ? h('button', { class: 'btn primary', onclick: () => openFitDialog(ed, e.id) }, 'Averiguar la velocidad con la posición ③') : '',
     );
   }
 }

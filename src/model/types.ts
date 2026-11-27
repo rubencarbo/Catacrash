@@ -306,6 +306,10 @@ export interface Drive {
   skidObs?: number | null;
   /** Punto de salida sobre la ruta (m) cuando no se sincroniza (lo usan las simulaciones alternativas). */
   startS?: number;
+  /** Velocidad calculada para que esté en su posición ① al empezar (si no, la indicada). */
+  speedAuto?: boolean;
+  /** Punto que alcanza su frontal en t = 0 (si no, el punto de colisión común). */
+  syncPoint?: { x: number; z: number };
 }
 
 export interface VehicleEntity extends EntityBase {
@@ -336,6 +340,31 @@ export interface VehicleEntity extends EntityBase {
    * o tras recolocar el vehículo durante el accidente). El ajuste automático las usa como datos.
    */
   pins?: VehiclePin[];
+  /**
+   * Posiciones del croquis (como A1, A2, A3 en el atestado): inicial, en el instante de la
+   * colisión, final y, opcionalmente, intermedias. Con ellas se deriva su recorrido.
+   */
+  marks?: VehicleMarks;
+}
+
+/** Posición (centro del vehículo) y rumbo en grados. */
+export interface Pose {
+  x: number;
+  z: number;
+  h: number;
+}
+
+export type MarkRole = 'ini' | 'col' | 'fin' | 'mid';
+
+export interface VehicleMarks {
+  /** ① Dónde estaba al empezar (cuando empieza la secuencia). */
+  ini?: Pose;
+  /** ② Dónde estaba en el instante del choque (t = 0). */
+  col?: Pose;
+  /** ③ Dónde quedó parado. */
+  fin?: Pose;
+  /** Puntos por los que pasó entre ① y ② (en orden). */
+  mid?: Pose[];
 }
 
 /** Posición observada de un vehículo en un instante. */
@@ -413,4 +442,6 @@ export interface Selection {
   id: ID;
   /** Índice del punto de control seleccionado (entidades lineales). */
   point?: number;
+  /** Posición del croquis seleccionada de un vehículo: 'ini', 'col', 'fin' o 'mid:N'. */
+  mark?: string;
 }

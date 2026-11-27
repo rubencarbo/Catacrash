@@ -46,11 +46,19 @@ export class Dial {
     scene.add(this.group);
   }
 
-  show(e: Entity | null | undefined) {
+  private mark: string | null = null;
+  /** Objeto que rodea el dial: el vehículo/objeto o una posición del croquis. */
+  private obj() {
+    if (!this.id) return undefined;
+    return this.mark ? this.world.markObject(this.id, this.mark) : this.world.objects.get(this.id);
+  }
+
+  show(e: Entity | null | undefined, mark?: string) {
     this.id = null;
+    this.mark = mark ?? null;
     this.group.visible = false;
     if (!e || e.hidden || (e.kind !== 'vehicle' && e.kind !== 'prop')) return;
-    const obj = this.world.objects.get(e.id);
+    const obj = mark ? this.world.markObject(e.id, mark) : this.world.objects.get(e.id);
     if (!obj) return;
     if (e.kind === 'vehicle') {
       const sp = (e as VehicleEntity).spec;
@@ -71,7 +79,7 @@ export class Dial {
   /** Sigue al objeto (también mientras se reproduce o se arrastra) y mantiene el tamaño en pantalla. */
   update(camera: THREE.Camera) {
     if (!this.id) return;
-    const obj = this.world.objects.get(this.id);
+    const obj = this.obj();
     if (!obj || !obj.visible) {
       this.group.visible = false;
       return;

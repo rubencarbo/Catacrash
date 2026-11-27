@@ -136,7 +136,7 @@ export function openStartWizard(ed: Editor, opts: Opts = {}) {
   const views: Record<string, () => void> = {
     tpl: () => {
       clear(card);
-      card.append(back(), h('h2', {}, 'Empezar con una carretera tipo'), h('p', { class: 'muted' }, 'Elige el trazado más parecido al lugar: después puedes mover sus puntos, cambiar la sección, añadir carriles, aceras, muros o árboles.'), nameField(), tplPicker(), h('div', { class: 'row end' }, h('button', { class: 'btn primary big', onclick: () => start(tpl, () => toast('Escenario creado. Siguiente paso: añade los vehículos (botón «2 Vehículos» arriba).', 'info', 6000)) }, 'Crear escenario')));
+      card.append(back(), h('h2', {}, 'Empezar con una carretera tipo'), h('p', { class: 'muted' }, 'Elige el trazado más parecido al lugar: después puedes mover sus puntos, cambiar la sección, añadir carriles, aceras, muros o árboles.'), nameField(), tplPicker(), h('div', { class: 'row end' }, h('button', { class: 'btn primary big', onclick: () => start(tpl, () => toast('Escenario creado. Siguiente: añade el croquis o las fotos (paso 2) o coloca los vehículos (paso 3), arriba.', 'info', 7000)) }, 'Crear escenario')));
     },
     air: () => aerial(false),
     sketch: () => aerial(true),

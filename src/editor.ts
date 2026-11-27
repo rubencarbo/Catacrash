@@ -9,6 +9,7 @@ import { DEG } from './scene/utils';
 import type { Player } from './anim/player';
 import { repositionVehicle, type Pose, type RepositionResult } from './physics/reposition';
 import { Dial, headingText, roadHeadings } from './tools/dial';
+import { applyAllMarks, getMark, setMark } from './physics/marks';
 import { pickEntity } from './tools/basic';
 import { toast } from './ui/dom';
 
@@ -184,8 +185,24 @@ export class Editor {
     // dial: flecha de giro del objeto seleccionado
     if (this.tool.id === 'select' || this.tool.id === 'vehicle') {
       if (this.dial.target && this.dial.pick(ev.ray)) {
-        this.startDial(this.dial.target, 'rot', ev, e);
+        this.startDial(this.dial.target, 'rot', ev, e, this.store.selection?.mark);
         return;
+      }
+    }
+    // posiciones del croquis (A1, A2, A3…): pulsar las selecciona y arrastrar las mueve
+    if (this.tool.id === 'select' || (this.tool.id === 'vehicle' && !this.tool.busy?.())) {
+      const hit = ev.ray.intersectObjects(this.world.markObjects(), true).find((h) => (h.object as THREE.Mesh).isMesh);
+      if (hit) {
+        let o: THREE.Object3D | null = hit.object;
+        while (o && !o.userData.mark) o = o.parent;
+        const id = o?.userData.entityId as string | undefined;
+        const key = o?.userData.mark as string | undefined;
+        if (id && key) {
+          const cur = this.store.selection;
+          if (cur?.id !== id || cur.mark !== key) this.selectMark(id, key);
+          this.startDial(id, 'move', ev, e, key);
+          return;
+        }
       }
     }
     // mantener pulsado sobre un vehículo u objeto y arrastrar lo mueve (y lo selecciona si no lo estaba)
@@ -201,21 +218,22 @@ export class Editor {
     if (this.tool.down?.(ev)) this.capture();
   }
 
-  private startDial(id: string, mode: 'rot' | 'move', ev: ToolEvent, pe: PointerEvent) {
-    const obj = this.world.objects.get(id);
-    const pose = this.currentPose(id);
+  private startDial(id: string, mode: 'rot' | 'move', ev: ToolEvent, pe: PointerEvent, mark?: string) {
+    const obj = mark ? this.world.markObject(id, mark) : this.world.objects.get(id);
+    const ent = this.store.get(id);
+    const pose = mark && ent?.kind === 'vehicle' ? getMark(ent, mark) : this.currentPose(id);
     if (!obj || !pose) return;
     const g = ev.ground ?? this.planeHit(ev.ray, obj.position.y);
     this.player?.pause();
     this.store.begin();
-    this.dialDrag = { id, mode, grab: new THREE.Vector2(g ? obj.position.x - g.x : 0, g ? obj.position.z - g.z : 0), x: pe.clientX, y: pe.clientY, moved: false, h: pose.h };
+    this.dialDrag = { id, mode, grab: new THREE.Vector2(g ? obj.position.x - g.x : 0, g ? obj.position.z - g.z : 0), x: pe.clientX, y: pe.clientY, moved: false, h: pose.h, mark };
     this.vp.renderer.domElement.style.cursor = mode === 'move' ? 'grabbing' : 'alias';
     this.capture();
   }
 
   private dragDial(ev: ToolEvent) {
     const d = this.dialDrag!;
-    const obj = this.world.objects.get(d.id);
+    const obj = d.mark ? this.world.markObject(d.id, d.mark) : this.world.objects.get(d.id);
     const e = this.store.get(d.id);
     if (!obj || !e) return;
     const pe = ev.e as PointerEvent;
@@ -241,7 +259,7 @@ export class Editor {
       d.h = h;
       const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
       obj.rotation.set(eu.x, -h * DEG, eu.z, 'YXZ');
-      if (e.kind === 'prop') {
+      if (e.kind === 'prop' && !d.mark) {
         e.rot = h;
         this.world.placeProp(obj, e);
       }
@@ -250,12 +268,12 @@ export class Editor {
       const x = g.x + d.grab.x;
       const z = g.z + d.grab.y;
       obj.position.set(x, this.world.surfaceHeight(x, z), z);
-      if (e.kind === 'prop') {
+      if (e.kind === 'prop' && !d.mark) {
         e.x = x;
         e.z = z;
         this.world.placeProp(obj, e);
       }
-      this.showTip(e.kind === 'vehicle' ? 'Suelta para recolocarlo en este instante' : 'Moviendo', pe.clientX, pe.clientY);
+      this.showTip(d.mark ? 'Suelta para fijar esta posición' : e.kind === 'vehicle' ? 'Suelta para recolocarlo en este instante' : 'Moviendo', pe.clientX, pe.clientY);
     }
   }
 
@@ -285,8 +303,8 @@ export class Editor {
   beginRotate(pe: PointerEvent) {
     const id = this.store.selection?.id;
     if (!id) return;
-    this.startDial(id, 'rot', this.event(pe), pe);
-    this.dialDrag!.moved = true;
+    this.startDial(id, 'rot', this.event(pe), pe, this.store.selection?.mark);
+    if (this.dialDrag) this.dialDrag.moved = true;
   }
 
   private endDial() {
@@ -295,11 +313,12 @@ export class Editor {
     this.showTip(null);
     this.vp.renderer.domElement.style.cursor = '';
     const e = this.store.get(d.id);
-    const obj = this.world.objects.get(d.id);
+    const obj = d.mark ? this.world.markObject(d.id, d.mark) : this.world.objects.get(d.id);
     if (!d.moved || !e || !obj) {
       this.store.end();
       return;
     }
+    if (e.kind === 'vehicle' && d.mark) return this.commitMark(e, d.mark, { x: obj.position.x, z: obj.position.z, h: d.h });
     if (e.kind === 'vehicle') return this.commitVehicle(e, { x: obj.position.x, z: obj.position.z, h: d.h });
     this.store.end();
     this.store.notify({ type: 'entity', id: d.id });
@@ -453,7 +472,7 @@ export class Editor {
   inspectorSync: (() => void) | null = null;
   /** Dial de giro del objeto seleccionado. */
   dial: Dial;
-  private dialDrag: { id: string; mode: 'rot' | 'move'; grab: THREE.Vector2; x: number; y: number; moved: boolean; h: number } | null = null;
+  private dialDrag: { id: string; mode: 'rot' | 'move'; grab: THREE.Vector2; x: number; y: number; moved: boolean; h: number; mark?: string } | null = null;
   private tipEl: HTMLDivElement;
   /** El gizmo de ejes solo aparece al pulsar G o R; normalmente se usa el dial. */
   private gizmoOn = false;
@@ -463,6 +482,26 @@ export class Editor {
    * ya abierta con store.begin): recalcula la reconstrucción y la cierra.
    */
   commitVehicle(e: VehicleEntity, pose: Pose) {
+    if (e.marks) {
+      // con posiciones de croquis: el instante decide qué posición es
+      const t = this.player?.time ?? 0;
+      const r = this.player?.range() ?? { start: -4, end: 4 };
+      const sv = this.world.sim?.vehicles.get(e.id);
+      const tc = sv?.firstContact ?? 0;
+      const tr = sv?.restTime ?? null;
+      let key: string | null = null;
+      if (t <= r.start + 0.05) key = 'ini';
+      else if (Math.abs(t - tc) < 0.06 || Math.abs(t) < 0.06) key = 'col';
+      else if (tr !== null && t >= tr - 0.01) key = 'fin';
+      else if (t < tc) key = 'mid';
+      if (key) {
+        const names: Record<string, string> = { ini: '① inicial', col: '② en el choque', fin: '③ final', mid: 'intermedia' };
+        this.commitMark(e, key, pose);
+        toast(`${e.label}: posición ${names[key]} fijada aquí.`);
+        if (key !== 'mid') this.selectMark(e.id, key);
+        return;
+      }
+    }
     const res: RepositionResult = repositionVehicle(this.world, e, this.player?.time ?? 0, pose);
     this.store.end();
     this.store.notify({ type: 'env' });
@@ -470,11 +509,32 @@ export class Editor {
     if (res.needsFit) this.onNeedsFit?.(e.id);
   }
 
+  /** Fija una posición del croquis de un vehículo (dentro de una edición abierta) y lo recalcula todo. */
+  commitMark(e: VehicleEntity, key: string, pose: Pose | null) {
+    setMark(e, key, pose);
+    applyAllMarks(this.world, this.store.project);
+    this.store.end();
+    this.store.notify({ type: 'env' });
+  }
+
+  /** Objeto 3D de la selección actual (una posición del croquis o el propio objeto). */
+  selectedObject(): THREE.Object3D | undefined {
+    const sel = this.store.selection;
+    if (!sel) return undefined;
+    return sel.mark ? this.world.markObject(sel.id, sel.mark) : this.world.objects.get(sel.id);
+  }
+
+  selectMark(id: string, key: string) {
+    this.store.select({ id, mark: key });
+  }
+
   /** Gira (o recoloca) un vehículo u objeto en una sola acción deshacible. */
   setPose(id: string, pose: Pose) {
     const e = this.store.get(id);
     if (!e) return;
+    const mk = this.store.selection?.id === id ? this.store.selection.mark : undefined;
     this.store.begin();
+    if (e.kind === 'vehicle' && mk) return this.commitMark(e, mk, pose);
     if (e.kind === 'vehicle') return this.commitVehicle(e, pose);
     if (e.kind === 'prop') {
       e.x = pose.x;
@@ -489,6 +549,8 @@ export class Editor {
   currentPose(id: string): Pose | null {
     const e = this.store.get(id);
     if (!e) return null;
+    const mk = this.store.selection?.id === id ? this.store.selection.mark : undefined;
+    if (e.kind === 'vehicle' && mk) return getMark(e, mk);
     if (e.kind === 'vehicle') {
       const f = this.world.vehiclePose(e);
       return { x: f.x, z: f.z, h: f.h };
@@ -520,6 +582,8 @@ export class Editor {
   photoMatch: ((id: string) => void) | null = null;
   /** Prepara una foto de referencia para colocarla con el próximo clic (herramienta Fotos). */
   preparePhoto: ((blob: Blob, name: string) => Promise<void>) | null = null;
+  /** Empieza a colocar una posición del croquis (① ② ③ o intermedia) de un vehículo. */
+  placeMark: ((id: string, role: 'ini' | 'col' | 'fin' | 'mid') => void) | null = null;
   /** Empieza la calibración de escala de un calco (dos clics y la distancia real). */
   calibrateOverlay: ((id: string) => void) | null = null;
   /** Captura el próximo clic sobre el suelo (p. ej. fijar el punto de colisión). */
@@ -554,7 +618,7 @@ export class Editor {
     this.handles.clear();
     this.world.showGhostFor(sel?.id ?? null);
     if (!e) return;
-    const obj = this.world.objects.get(e.id);
+    const obj = sel?.mark ? this.world.markObject(e.id, sel.mark) : this.world.objects.get(e.id);
     if ((e.kind === 'prop' || e.kind === 'linear' || e.kind === 'vehicle') && obj && obj.visible) {
       this.selBox = new THREE.BoxHelper(obj, 0xffb020);
       (this.selBox.material as THREE.LineBasicMaterial).depthTest = false;
@@ -564,7 +628,7 @@ export class Editor {
     const gt = e.kind === 'vehicle' ? this.world.gizmoTarget(e) : obj;
     const editing = this.tool.id === 'select' || this.tool.id === 'vehicle';
     if (this.gizmoOn && (e.kind === 'prop' || e.kind === 'vehicle') && gt && obj?.visible && editing) this.gizmo.attach(gt);
-    this.dial.show(editing && !this.gizmoOn ? e : null);
+    this.dial.show(editing && !this.gizmoOn ? e : null, sel?.mark);
     if (this.tool.handles) this.handles.show(e, sel?.point);
   }
 
@@ -574,6 +638,12 @@ export class Editor {
     if (!sel) return;
     const e = this.store.get(sel.id);
     if (!e) return;
+    if (sel.mark && e.kind === 'vehicle') {
+      this.store.begin();
+      this.commitMark(e, sel.mark, null);
+      this.select(e.id);
+      return;
+    }
     if (sel.point !== undefined && e.kind === 'vehicle' && e.drive && e.drive.path.length > 2) {
       this.store.edit(() => e.drive!.path.splice(sel.point!, 1), { type: 'entity', id: e.id });
       this.select(e.id);
