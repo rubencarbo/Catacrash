@@ -54,6 +54,7 @@ function bodyMat(color: string) {
   let m = bodyMats.get(color);
   if (!m) {
     m = new THREE.MeshPhysicalMaterial({ color, roughness: 0.45, metalness: 0.1, clearcoat: 0.35, clearcoatRoughness: 0.3 });
+    m.userData.body = true;
     bodyMats.set(color, m);
   }
   return m;
@@ -119,7 +120,9 @@ function loft(
       idx.push(a, c, b, b, c, d);
     }
   }
-  // tapas delantera y trasera (abanico desde el centro)
+  // tapas delantera y trasera: anillos concéntricos (no un abanico) para que el frontal y la
+  // trasera tengan vértices interiores y se puedan deformar con suavidad
+  const K = 4;
   for (const [i, flip] of [
     [0, false],
     [stations.length - 1, true],
@@ -132,14 +135,32 @@ function loft(
       cy += pos[(i * M + j) * 3 + 1];
       cz += pos[(i * M + j) * 3 + 2];
     }
-    const ci = pos.length / 3;
-    pos.push(cx / M, cy / M, cz / M);
-    for (let j = 0; j < M; j++) {
-      const a = i * M + j;
-      const b = i * M + ((j + 1) % M);
-      if (flip) idx.push(ci, b, a);
-      else idx.push(ci, a, b);
+    cx /= M;
+    cy /= M;
+    cz /= M;
+    let outer = Array.from({ length: M }, (_, j) => i * M + j);
+    const tri = (a: number, b: number, c: number) => (flip ? idx.push(a, c, b) : idx.push(a, b, c));
+    for (let k = 1; k < K; k++) {
+      const f = 1 - k / K;
+      const inner: number[] = [];
+      for (let j = 0; j < M; j++) {
+        const o = i * M + j;
+        inner.push(pos.length / 3);
+        pos.push(cx + (pos[o * 3] - cx) * f, cy + (pos[o * 3 + 1] - cy) * f, cz + (pos[o * 3 + 2] - cz) * f);
+      }
+      for (let j = 0; j < M; j++) {
+        const a = outer[j];
+        const b = outer[(j + 1) % M];
+        const a2 = inner[j];
+        const b2 = inner[(j + 1) % M];
+        tri(a2, a, b);
+        tri(a2, b, b2);
+      }
+      outer = inner;
     }
+    const ci = pos.length / 3;
+    pos.push(cx, cy, cz);
+    for (let j = 0; j < M; j++) tri(ci, outer[j], outer[(j + 1) % M]);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -279,13 +300,13 @@ function buildCar(sp: VehicleSpec, color: string, plate: string): THREE.Group {
     L,
     0,
     L,
-    0.1,
+    0.05,
     (s) => (s < 0.15 || s > L - 0.15 ? clearance + 0.08 : arch(s)),
     (s) => lerpPoly(hullTop, s),
     (s) => half(s) * 0.97,
     (s) => half(s),
-    5,
-    6,
+    9,
+    9,
   );
   const bm = bodyMat(color);
   g.add(mesh(hull, bm));
@@ -310,10 +331,20 @@ function buildCar(sp: VehicleSpec, color: string, plate: string): THREE.Group {
       (s) => lerpPoly(cabTop, s),
       (s) => Math.min(half(s) * 0.98, cabW + 0.04),
       (s) => Math.min(half(s), cabW) * 0.86,
-      4,
-      5,
+      6,
+      7,
     );
     g.add(mesh(cab, glassMat));
+    // contorno del parabrisas (para las grietas si el golpe es grave)
+    const wb = Math.min(half(s0), cabW + 0.04) * 0.97;
+    const wt = Math.min(half(S.roofF * L), cabW) * 0.86 * 0.97;
+    g.userData.windshield = [
+      new THREE.Vector3(-wb, belt + 0.03, -L / 2 + s0 + 0.02),
+      new THREE.Vector3(wb, belt + 0.03, -L / 2 + s0 + 0.02),
+      new THREE.Vector3(wt, H - 0.04, -L / 2 + S.roofF * L - 0.02),
+      new THREE.Vector3(-wt, H - 0.04, -L / 2 + S.roofF * L - 0.02),
+    ];
+    g.userData.belt = belt;
     // Techo y pilares del color de la carrocería
     const roof = loft(
       L,
@@ -324,8 +355,8 @@ function buildCar(sp: VehicleSpec, color: string, plate: string): THREE.Group {
       () => H + 0.012,
       () => cabW * 0.87,
       () => cabW * 0.82,
-      1,
-      4,
+      2,
+      8,
     );
     g.add(mesh(roof, bm));
     const pw = 0.07;
@@ -374,14 +405,17 @@ function buildCar(sp: VehicleSpec, color: string, plate: string): THREE.Group {
     const hl = new THREE.Mesh(new THREE.BoxGeometry(Math.min(0.35, W * 0.17), 0.09, 0.05), headMat);
     hl.position.set(sx * (half(0.05) - 0.22), fy, -L / 2 + 0.03);
     hl.userData.deformRigid = true;
+    hl.userData.part = 'light';
     g.add(hl);
     const tl = new THREE.Mesh(new THREE.BoxGeometry(Math.min(0.3, W * 0.14), 0.1, 0.05), tailMat);
     tl.position.set(sx * (half(L - 0.05) - 0.2), S.tail * H - 0.2, L / 2 - 0.03);
     tl.userData.deformRigid = true;
+    tl.userData.part = 'light';
     g.add(tl);
     const mir = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.11, 0.07), bm);
     mir.position.set(sx * (W / 2 + 0.06), belt + 0.08, -L / 2 + s0 + 0.15);
     mir.userData.deformRigid = true;
+    mir.userData.part = 'mirror';
     g.add(mir);
   }
   const pm = new THREE.MeshStandardMaterial({ map: plateTexture(plate), roughness: 0.4 });
@@ -563,79 +597,284 @@ const smooth = (t: number) => {
 /** Peso 1 dentro de [a, b] con transición suave de anchura `soft`. */
 const band = (v: number, a: number, b: number, soft: number) => smooth((v - a + soft) / soft) * smooth((b - v + soft) / soft);
 
+// Ruido de valor 3D suave (determinista): arrugas irregulares de la chapa.
+function hash3(i: number, j: number, k: number) {
+  let h = (i * 374761393 + j * 668265263 + k * 1274126177) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+function noise3(x: number, y: number, z: number) {
+  const i = Math.floor(x);
+  const j = Math.floor(y);
+  const k = Math.floor(z);
+  const fx = smooth(x - i);
+  const fy = smooth(y - j);
+  const fz = smooth(z - k);
+  const l = (a: number, b: number, t: number) => a + (b - a) * t;
+  const c = (di: number, dj: number, dk: number) => hash3(i + di, j + dj, k + dk);
+  return l(l(l(c(0, 0, 0), c(1, 0, 0), fx), l(c(0, 1, 0), c(1, 1, 0), fx), fy), l(l(c(0, 0, 1), c(1, 0, 1), fx), l(c(0, 1, 1), c(1, 1, 1), fx), fy), fz);
+}
+/** Ruido con dos octavas, centrado en 0 (≈ −0,5…0,5). */
+const fbm = (x: number, y: number, z: number) => noise3(x, y, z) * 0.65 + noise3(x * 2.3 + 7, y * 2.3 + 3, z * 2.3 + 1) * 0.35 - 0.5;
+
+/** Ventana con máximo redondeado en el centro del tramo dañado (no un escalón plano). */
+function peak(u: number, a: number, b: number, soft: number) {
+  const w = band(u, a, b, soft);
+  if (w <= 0) return 0;
+  const c = (a + b) / 2;
+  const hw = Math.max(0.08, (b - a) / 2 + soft * 0.5);
+  return w * (0.62 + 0.38 * Math.cos((Math.min(1, Math.abs(u - c) / hw) * Math.PI) / 2));
+}
+
+let crackTex: THREE.CanvasTexture | null = null;
+/** Textura de parabrisas agrietado (telaraña desde el punto de impacto). */
+function crackTexture() {
+  if (crackTex) return crackTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d')!;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const cx = 190;
+  const cy = 300;
+  g.strokeStyle = 'rgba(235,240,245,0.85)';
+  g.lineCap = 'round';
+  const rays = 22;
+  for (let i = 0; i < rays; i++) {
+    let a = (i / rays) * Math.PI * 2 + rnd() * 0.25;
+    let x = cx;
+    let y = cy;
+    const len = 120 + rnd() * 380;
+    g.lineWidth = 1.6;
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let d = 0; d < len; d += 18) {
+      a += (rnd() - 0.5) * 0.35;
+      x += Math.cos(a) * 18;
+      y += Math.sin(a) * 18;
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  for (let r = 18; r < 170; r += 16 + rnd() * 22) {
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let k = 0; k <= 40; k++) {
+      const a = (k / 40) * Math.PI * 2;
+      const rr = r * (0.85 + rnd() * 0.3);
+      const x = cx + Math.cos(a) * rr;
+      const y = cy + Math.sin(a) * rr;
+      if (k === 0 || rnd() < 0.25) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  const grd = g.createRadialGradient(cx, cy, 0, cx, cy, 60);
+  grd.addColorStop(0, 'rgba(230,235,240,0.55)');
+  grd.addColorStop(1, 'rgba(230,235,240,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 512, 512);
+  crackTex = new THREE.CanvasTexture(c);
+  crackTex.colorSpace = THREE.SRGBColorSpace;
+  return crackTex;
+}
+const brokenLightMat = new THREE.MeshStandardMaterial({ color: 0x3a3f44, roughness: 0.55, metalness: 0.2 });
+
 /**
- * Deforma la geometría del vehículo según las zonas dañadas: los puntos más cercanos al lado
- * dañado se desplazan hacia dentro la profundidad indicada, con una transición progresiva
- * (zona de aplastamiento) y un leve arrugado.
+ * Deforma la carrocería según las zonas dañadas, de forma progresiva y no en bloque:
+ * - aplastamiento con perfil redondeado (máximo en el centro del golpe) y compresión en acordeón
+ *   a lo largo de la zona de deformación, sin que la chapa se cruce consigo misma;
+ * - capó o portón pandeados hacia arriba, costados abombados y esquinas plegadas hacia dentro;
+ * - arrugas irregulares (ruido 3D) y pintura rascada en la chapa deformada;
+ * - faros y pilotos rotos, retrovisores arrancados, parabrisas agrietado y ruedas desplazadas.
  */
 export function applyDamage(group: THREE.Group, sp: VehicleSpec, zones: DamageZone[]) {
   if (!zones.length) return;
   const { L, W, H } = sp;
+  const beltF = (group.userData.belt ?? H * 0.55) / H;
   const v = new THREE.Vector3();
-  const disp = (p: THREE.Vector3) => {
+  /** Desplazamiento de un punto y grado de daño en él (0–1, para la pintura y las piezas). */
+  const disp = (p: THREE.Vector3): { out: THREE.Vector3; r: number } => {
     const s = p.z + L / 2; // desde el frontal
     const out = p.clone();
+    let r = 0;
+    const n1 = fbm(p.x * 6.5, p.y * 6.5, p.z * 6.5);
+    const n2 = fbm(p.y * 9 + 11, p.z * 9 + 5, p.x * 9 + 3);
     for (const z of zones) {
       const D = Math.max(0, z.depth);
       if (D <= 0) continue;
-      const fh = band(p.y / H, z.hFrom, z.hTo, 0.12);
-      if (fh <= 0) continue;
-      const reach = D + 0.5;
-      const crumple = 1 + 0.12 * Math.sin(p.x * 23 + p.y * 17 + p.z * 11);
       if (z.side === 'frontal' || z.side === 'trasera') {
+        const fh = band(p.y / H, z.hFrom, z.hTo, 0.2);
         const u = (p.x + W / 2) / W; // 0 = izquierda, 1 = derecha
-        const fu = band(u, z.from, z.to, 0.12);
+        const fu = peak(u, z.from, z.to, 0.16);
+        if (fh <= 0 || fu <= 0) continue;
         const d = z.side === 'frontal' ? s : L - s;
-        if (d >= reach || fu <= 0) continue;
-        const push = D * (1 - d / reach) * fu * fh * crumple;
-        out.z += z.side === 'frontal' ? push : -push;
-        out.y -= push * 0.08 * Math.sin(p.x * 9);
+        const reach = 1.6 * D + 0.35;
+        if (d >= reach) continue;
+        const k = d / reach;
+        // los largueros (abajo) son más rígidos que la chapa de arriba
+        const stiff = p.y < H * 0.3 ? 0.85 : 1;
+        const Dz = D * fu * fh * stiff;
+        const push = Dz * (1 - smooth(k));
+        const dir = z.side === 'frontal' ? 1 : -1;
+        // arrugas proporcionales a la gravedad: un roce queda liso, un frontal fuerte, arrugado
+        const wr = Math.min(1, D / 0.5);
+        out.z += dir * push * (1 + 0.16 * wr * n1);
+        // capó / portón pandeado hacia arriba en una cresta
+        const upper = smooth((p.y / H - beltF * 0.82) / 0.12);
+        out.y += Dz * 0.24 * Math.sin(Math.PI * k) * upper * (0.85 + 0.4 * n2);
+        // arrugas
+        out.y += push * 0.09 * wr * n2;
+        out.x += push * 0.07 * wr * n1;
+        // la chapa comprimida se abomba hacia fuera por los costados
+        const sideness = Math.abs(p.x) / (W / 2);
+        out.x += Math.sign(p.x) * push * 0.08 * smooth((sideness - 0.72) / 0.2) * Math.sin(Math.PI * Math.min(1, k * 1.4));
+        // esquina plegada hacia dentro si el golpe la alcanza
+        if (z.from < 0.22 && u < 0.32) out.x += push * 0.18 * (1 - u / 0.32);
+        if (z.to > 0.78 && u > 0.68) out.x -= push * 0.18 * ((u - 0.68) / 0.32);
+        r = Math.max(r, Math.min(1, (push / Math.max(0.05, D)) * (1.15 - k)));
       } else if (z.side === 'izquierda' || z.side === 'derecha') {
+        const fh = band(p.y / H, z.hFrom, z.hTo, 0.25);
         const u = s / L; // 0 = frontal, 1 = trasera
-        const fu = band(u, z.from, z.to, 0.06);
+        const fu = peak(u, z.from, z.to, 0.07);
+        if (fh <= 0 || fu <= 0) continue;
         const sx = z.side === 'izquierda' ? -1 : 1;
         const d = W / 2 - sx * p.x;
-        if (d >= reach || fu <= 0) continue;
-        const push = D * (1 - d / reach) * fu * fh * crumple;
-        out.x -= sx * push;
+        const reach = 1.3 * D + 0.3;
+        if (d >= reach) continue;
+        const k = d / reach;
+        const Dz = D * fu * fh;
+        const push = Dz * (1 - smooth(k));
+        const wr = Math.min(1, D / 0.4);
+        out.x -= sx * push * (1 + 0.16 * wr * n1);
+        // la puerta se ondula y el techo cede un poco sobre la zona hundida
+        out.z += push * 0.1 * wr * n2;
+        out.y += push * 0.06 * wr * n1;
+        if (p.y / H > beltF) out.y -= push * 0.12;
+        r = Math.max(r, Math.min(1, (push / Math.max(0.05, D)) * (1.15 - k)));
       } else {
         const u = s / L;
-        const fu = band(u, z.from, z.to, 0.06);
+        const fu = peak(u, z.from, z.to, 0.08);
+        if (fu <= 0) continue;
         const d = H - p.y;
-        if (d >= reach || fu <= 0) continue;
-        out.y -= D * (1 - d / reach) * fu * crumple;
+        const reach = 1.2 * D + 0.2;
+        if (d >= reach) continue;
+        const k = d / reach;
+        const push = D * fu * (1 - smooth(k));
+        out.y -= push * (1 + 0.2 * n1);
+        out.x += Math.sign(p.x) * push * 0.1;
+        r = Math.max(r, Math.min(1, (push / Math.max(0.05, D)) * (1.15 - k)));
       }
     }
-    return out;
+    return { out, r };
   };
+
+  // material de carrocería propio con pintura rascada (colores por vértice)
+  let damagedBody: THREE.MeshPhysicalMaterial | null = null;
+  const scrape = new THREE.Color(0.5, 0.5, 0.52);
   group.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     if (m.userData.deform) {
       const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const isBody = (m.material as THREE.Material).userData?.body;
+      const col = isBody ? new Float32Array(pos.count * 3) : null;
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i);
-        const d = disp(v);
-        pos.setXYZ(i, d.x, d.y, d.z);
+        const { out, r } = disp(v);
+        pos.setXYZ(i, out.x, out.y, out.z);
+        if (col) {
+          // pintura rascada a manchas donde la chapa se ha deformado
+          const speck = 0.5 + fbm(v.x * 22, v.y * 22, v.z * 22);
+          const t = Math.min(1, r * (0.55 + 0.9 * speck));
+          const c = new THREE.Color(1, 1, 1).lerp(scrape, t * 0.85);
+          col[i * 3] = c.r;
+          col[i * 3 + 1] = c.g;
+          col[i * 3 + 2] = c.b;
+        }
       }
       pos.needsUpdate = true;
       m.geometry.computeVertexNormals();
+      if (col) {
+        m.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        if (!damagedBody) {
+          damagedBody = (m.material as THREE.MeshPhysicalMaterial).clone();
+          damagedBody.vertexColors = true;
+          // sin barniz brillante: en la chapa arrugada daría reflejos blancos irreales
+          damagedBody.clearcoat = 0.05;
+          damagedBody.roughness = 0.62;
+          damagedBody.userData = { body: true };
+        }
+        m.material = damagedBody;
+      }
     } else if (m.userData.deformRigid) {
-      const d = disp(m.position);
-      m.position.copy(d);
+      const { out, r } = disp(m.position);
+      m.position.copy(out);
+      if (m.userData.part === 'light' && r > 0.12) {
+        // óptica rota: sin luz, ahumada e inclinada
+        m.material = brokenLightMat;
+        m.rotation.set((hash3(m.id, 1, 2) - 0.5) * 0.6, (hash3(m.id, 3, 4) - 0.5) * 0.8, (hash3(m.id, 5, 6) - 0.5) * 0.5);
+        m.scale.setScalar(0.85);
+      } else if (m.userData.part === 'mirror' && r > 0.25) m.visible = false; // arrancado
+      else if (r > 0.2) m.rotation.z += (hash3(m.id, 7, 8) - 0.5) * 0.4;
+    } else if (m.geometry && (m.material as THREE.Material).userData?.body) {
+      // piezas de carrocería sin deformar (pilares): material común con color neutro
+      if (!m.geometry.getAttribute('color')) {
+        const n = m.geometry.getAttribute('position').count;
+        m.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+      }
     }
   });
+  // los pilares comparten el material: si la carrocería usa colores por vértice, ellos también
+  if (damagedBody) {
+    const dm = damagedBody as THREE.MeshPhysicalMaterial;
+    group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && (m.material as THREE.Material).userData?.body && m.material !== dm) {
+        if (!m.geometry.getAttribute('color')) {
+          const n = m.geometry.getAttribute('position').count;
+          m.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+        }
+        m.material = dm;
+      }
+    });
+  }
+  // parabrisas agrietado si el golpe frontal o en el techo es importante
+  const ws = group.userData.windshield as THREE.Vector3[] | undefined;
+  const severe = zones.some((z) => (z.side === 'frontal' && z.depth > 0.3) || (z.side === 'techo' && z.depth > 0.12) || ((z.side === 'izquierda' || z.side === 'derecha') && z.depth > 0.4 && z.from < 0.45));
+  if (ws && severe) {
+    const geo = new THREE.PlaneGeometry(1, 1, 8, 8);
+    const pa = geo.getAttribute('position') as THREE.BufferAttribute;
+    const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+    const nrm = new THREE.Vector3().subVectors(ws[1], ws[0]).cross(new THREE.Vector3().subVectors(ws[3], ws[0])).normalize();
+    if (nrm.z > 0) nrm.negate();
+    for (let i = 0; i < pa.count; i++) {
+      const a = uv.getX(i);
+      const b = uv.getY(i);
+      const bottom = ws[0].clone().lerp(ws[1], a);
+      const top = ws[3].clone().lerp(ws[2], a);
+      const q = bottom.lerp(top, b).addScaledVector(nrm, 0.012);
+      const { out } = disp(q);
+      pa.setXYZ(i, out.x, out.y, out.z);
+    }
+    geo.computeVertexNormals();
+    const crack = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: crackTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    crack.renderOrder = 2;
+    group.add(crack);
+  }
   // Ruedas: retroceso y giro si el aplastamiento alcanza el eje
   group.children.forEach((c) => {
     if (!c.userData.wheel) return;
     const before = c.position.clone();
-    const after = disp(new THREE.Vector3(before.x, before.y + 0.1, before.z));
+    const { out: after } = disp(new THREE.Vector3(before.x, before.y + 0.1, before.z));
     const dz = after.z - before.z;
     const dx = after.x - before.x;
     if (Math.abs(dz) > 0.03 || Math.abs(dx) > 0.03) {
       c.position.z += dz * 0.8;
       c.position.x += dx * 0.8;
       c.rotation.y = Math.max(-0.5, Math.min(0.5, (dz + dx) * 1.5));
+      // rueda caída hacia dentro (suspensión rota)
+      c.rotation.z = Math.max(-0.25, Math.min(0.25, -Math.sign(c.position.x) * Math.hypot(dx, dz) * 0.6));
     }
   });
 }

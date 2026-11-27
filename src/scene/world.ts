@@ -130,11 +130,7 @@ export class World {
       sk.group.traverse((c) => (c as THREE.Mesh).geometry?.dispose());
       this.skids.delete(id);
     }
-    const gh = this.ghosts.get(id);
-    if (gh) {
-      this.root.remove(gh);
-      this.ghosts.delete(id);
-    }
+    this.removeGhosts(id);
     const o = this.objects.get(id);
     if (o) {
       this.root.remove(o);
@@ -442,6 +438,7 @@ export class World {
       this.addObject(v, this.makeVehicle(v));
     }
     this.updateImpactMarker();
+    this.buildDebris();
     this.setTime(this.time);
     this.onSim?.();
   }
@@ -492,20 +489,20 @@ export class World {
       }
     }
     // Posición final observada (croquis), para comparar con el reposo simulado
-    const oldG = this.ghosts.get(e.id);
-    if (oldG) this.root.remove(oldG);
-    this.ghosts.delete(e.id);
-    if (this.isDriven(e) && e.drive!.showFinal) {
-      const gh = this.makeGhost(e);
-      gh.visible = this.store.selection?.id === e.id;
-      this.root.add(gh);
-      this.ghosts.set(e.id, gh);
+    this.removeGhosts(e.id);
+    const ghosts = new THREE.Group();
+    if (this.isDriven(e) && e.drive!.showFinal) ghosts.add(this.makeGhost(e, { x: e.x, z: e.z, h: e.heading }, 'final'));
+    for (const pn of e.pins ?? []) ghosts.add(this.makeGhost(e, pn, `t = ${pn.t < 0 ? '−' : '+'}${Math.abs(pn.t).toFixed(2).replace('.', ',')} s`));
+    if (ghosts.children.length) {
+      ghosts.visible = this.store.selection?.id === e.id;
+      this.root.add(ghosts);
+      this.ghosts.set(e.id, ghosts);
     }
     this.placeVehicle(wrap, e);
     return wrap;
   }
 
-  private makeGhost(e: VehicleEntity) {
+  private makeGhost(e: VehicleEntity, pose: { x: number; z: number; h: number }, tag: string) {
     const sp = e.spec;
     const g = new THREE.Group();
     const box = new THREE.BoxGeometry(sp.W, sp.H * 0.9, sp.L);
@@ -517,25 +514,42 @@ export class World {
     const nose = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.5, 3).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: e.color, depthTest: false }));
     nose.position.set(0, sp.H * 0.95, -sp.L / 2 + 0.3);
     g.add(edges, fill, nose);
+    const div = document.createElement('div');
+    div.className = 'label ghost-tag';
+    div.textContent = `${e.label} ${tag === 'final' ? 'final observada' : tag}`;
+    div.style.setProperty('--chip', e.color);
+    const lbl = new CSS2DObject(div);
+    lbl.position.set(0, sp.H + 0.3, 0);
+    g.add(lbl);
     g.userData.ghostOf = e.id;
     g.traverse((c) => (c.userData.entityId = e.id));
-    this.placeGhost(g, e);
+    g.position.set(pose.x, this.surfaceHeight(pose.x, pose.z), pose.z);
+    g.rotation.set(0, (-pose.h * Math.PI) / 180, 0);
     return g;
   }
 
-  /** Solo se ve el contorno de la posición final del vehículo seleccionado. */
+  private removeGhosts(id: string) {
+    const gh = this.ghosts.get(id);
+    if (!gh) return;
+    this.root.remove(gh);
+    gh.traverse((c) => {
+      if (c instanceof CSS2DObject) c.element.remove();
+    });
+    this.ghosts.delete(id);
+  }
+
+  /** Solo se ven los contornos de las posiciones observadas del vehículo seleccionado. */
   showGhostFor(id: string | null) {
-    for (const [gid, g] of this.ghosts) g.visible = gid === id;
+    for (const [gid, g] of this.ghosts) {
+      g.visible = gid === id;
+      g.traverse((c) => {
+        if (c instanceof CSS2DObject) c.element.style.display = gid === id ? '' : 'none';
+      });
+    }
   }
 
-  placeGhost(g: THREE.Object3D, e: VehicleEntity) {
-    g.position.set(e.x, this.surfaceHeight(e.x, e.z), e.z);
-    g.rotation.set(0, (-e.heading * Math.PI) / 180, 0);
-  }
-
-  /** Objeto al que se engancha el gizmo: el fantasma de la posición final si está conducido. */
+  /** Objeto al que se engancha el gizmo: el propio vehículo en el instante actual. */
   gizmoTarget(e: VehicleEntity): THREE.Object3D | undefined {
-    if (this.isDriven(e)) return this.ghosts.get(e.id);
     return this.objects.get(e.id);
   }
 
@@ -602,8 +616,79 @@ export class World {
   }
 
   /** Coloca los vehículos en el instante t. */
+  /** Restos en el suelo (cristales, plásticos, pintura) de cada choque fuerte; aparecen en su instante. */
+  private debris: { t0: number; obj: THREE.InstancedMesh }[] = [];
+  private buildDebris() {
+    for (const d of this.debris) {
+      this.root.remove(d.obj);
+      d.obj.geometry.dispose();
+    }
+    this.debris = [];
+    const sim = this.sim;
+    if (!sim) return;
+    const vehicles = new Map(this.store.project.entities.filter((e): e is VehicleEntity => e.kind === 'vehicle').map((e) => [e.id, e]));
+    const seen: { x: number; z: number; t: number }[] = [];
+    for (const c of sim.contacts) {
+      const vB = vehicles.get(c.b);
+      const strong = vB ? c.peakForce > 40000 : c.peakForce > 90000;
+      if (!strong) continue;
+      if (seen.some((q) => Math.hypot(q.x - c.x, q.z - c.z) < 2 && Math.abs(q.t - c.t0) < 0.5)) continue;
+      seen.push({ x: c.x, z: c.z, t: c.t0 });
+      const vA = vehicles.get(c.a);
+      const sA = sim.vehicles.get(c.a);
+      const sB = vB ? sim.vehicles.get(c.b) : null;
+      if (!vA || !sA) continue;
+      // los restos siguen la cantidad de movimiento del conjunto justo antes del choque
+      const fa = frameAt(sA, c.t0 - 0.01);
+      const fb = sB ? frameAt(sB, c.t0 - 0.01) : null;
+      const mA = vA.spec.masa;
+      const mB = vB ? vB.spec.masa : 0;
+      const vx = (mA * fa.vx + (fb ? mB * fb.vx : 0)) / (mA + mB);
+      const vz = (mA * fa.vz + (fb ? mB * fb.vz : 0)) / (mA + mB);
+      const vm = Math.hypot(vx, vz);
+      const ux = vm > 0.3 ? vx / vm : 0;
+      const uz = vm > 0.3 ? vz / vm : 0;
+      const energy = Math.min(1, c.peakForce / 250000);
+      const N = Math.round(40 + 70 * energy);
+      const geo = new THREE.BoxGeometry(1, 0.012, 1);
+      const mat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.1 });
+      const mesh = new THREE.InstancedMesh(geo, mat, N);
+      mesh.receiveShadow = true;
+      let seed = Math.abs(Math.round(c.x * 1000 + c.z * 7919 + c.t0 * 104729)) + 1;
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      const glass = new THREE.Color(0xd6e6ee);
+      const plastic = new THREE.Color(0x1c1d1f);
+      const paintA = new THREE.Color(vA.color);
+      const paintB = vB ? new THREE.Color(vB.color) : new THREE.Color(0x8a8f94);
+      const m4 = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const e3 = new THREE.Euler();
+      for (let i = 0; i < N; i++) {
+        // reparto: dispersión radial + arrastre en el sentido del movimiento común
+        const along = vm > 0.3 ? Math.pow(rnd(), 1.6) * Math.min(9, 0.45 * vm) : 0;
+        const ang = rnd() * Math.PI * 2;
+        const rad = Math.pow(rnd(), 1.3) * (1.2 + 1.8 * energy);
+        const x = c.x + ux * along + Math.cos(ang) * rad;
+        const z = c.z + uz * along + Math.sin(ang) * rad;
+        const kind = rnd();
+        const size = kind < 0.5 ? 0.012 + rnd() * 0.025 : 0.025 + rnd() * 0.07;
+        e3.set((rnd() - 0.5) * 0.3, rnd() * Math.PI * 2, (rnd() - 0.5) * 0.3);
+        q.setFromEuler(e3);
+        m4.compose(new THREE.Vector3(x, this.surfaceHeight(x, z) + 0.008, z), q, new THREE.Vector3(size * (0.6 + rnd() * 0.8), 1, size * (0.6 + rnd() * 0.8)));
+        mesh.setMatrixAt(i, m4);
+        mesh.setColorAt(i, kind < 0.5 ? glass : kind < 0.88 ? plastic : rnd() < 0.5 ? paintA : paintB);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.userData.debris = true;
+      this.root.add(mesh);
+      this.debris.push({ t0: c.t0, obj: mesh });
+    }
+  }
+
   setTime(t: number) {
     this.time = t;
+    for (const d of this.debris) d.obj.visible = t >= d.t0 + 0.03;
     for (const e of this.store.project.entities) {
       if (e.kind !== 'vehicle') continue;
       const obj = this.objects.get(e.id);

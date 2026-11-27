@@ -331,6 +331,21 @@ export interface VehicleEntity extends EntityBase {
    * la posición final observada (croquis) con la que se compara el reposo simulado.
    */
   drive?: Drive;
+  /**
+   * Posiciones observadas en instantes concretos (p. ej. la del croquis en el momento del choque
+   * o tras recolocar el vehículo durante el accidente). El ajuste automático las usa como datos.
+   */
+  pins?: VehiclePin[];
+}
+
+/** Posición observada de un vehículo en un instante. */
+export interface VehiclePin {
+  id: ID;
+  t: number;
+  x: number;
+  z: number;
+  /** Rumbo (grados). */
+  h: number;
 }
 
 export type Entity =

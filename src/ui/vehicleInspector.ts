@@ -7,6 +7,7 @@ import { saveToLibrary } from '../vehicles/catalog';
 import { respec, TYPICAL } from '../vehicles/spec';
 import { fmt, h, toast } from './dom';
 import { openFitDialog } from './fitDialog';
+import { frameAt } from '../physics/sim';
 import { laneRoute } from '../physics/lane';
 import { ICON } from './icons';
 
@@ -186,6 +187,7 @@ export function renderVehicleInspector(el: HTMLElement, ed: Editor, e: VehicleEn
   );
 
   renderDrive(el, ed, e);
+  renderPins(el, ed, e);
   if (sp.tipo !== 'peaton') renderDamage(el, ed, e, numberField);
   renderPhotos(el, ed, e);
 }
@@ -533,4 +535,34 @@ function renderDrive(el: HTMLElement, ed: Editor, e: VehicleEntity) {
     ),
   );
   el.append(h('button', { class: 'btn', onclick: () => change(() => delete e.drive) }, 'Quitar movimiento (dejar parado)'));
+}
+
+// ---------------- Posiciones observadas ----------------
+
+function renderPins(el: HTMLElement, ed: Editor, e: VehicleEntity) {
+  const change = (fn: () => void) => ed.store.edit(fn, { type: 'env' });
+  el.append(h('div', { class: 'cat-title' }, 'Recolocar durante el accidente'));
+  el.append(
+    h(
+      'p',
+      { class: 'muted' },
+      'Mueve la barra de tiempo a cualquier instante y arrastra o gira el vehículo (G / R). Antes del choque se rehacen su ruta y su velocidad para que esté ahí en ese instante; en el impacto se desplaza también el punto de colisión; después del choque queda como posición observada y se buscan las velocidades que la reproducen.',
+    ),
+  );
+  const pins = e.pins ?? [];
+  if (!pins.length) return;
+  const sv = ed.world.sim?.vehicles.get(e.id);
+  for (const pn of pins) {
+    const f = sv ? frameAt(sv, pn.t) : null;
+    const err = f ? `simulado a ${fmt(Math.hypot(f.x - pn.x, f.z - pn.z), 1)} m` : '';
+    el.append(
+      h(
+        'div',
+        { class: 'pin-row' },
+        h('button', { class: 'btn small', title: 'Ir a ese instante', onclick: () => ed.player?.setTime(pn.t) }, `t = ${pn.t < 0 ? '−' : '+'}${fmt(Math.abs(pn.t), 2)} s`),
+        h('span', { class: 'muted' }, err),
+        h('button', { class: 'icon-btn small danger', title: 'Quitar esta posición observada', html: ICON.trash, onclick: () => change(() => (e.pins = (e.pins ?? []).filter((q) => q.id !== pn.id))) }),
+      ),
+    );
+  }
 }

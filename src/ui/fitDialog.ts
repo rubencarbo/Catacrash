@@ -18,7 +18,7 @@ const fmtVal = (p: FitParam, v: number) => (p.unit === '×' ? `${Math.round(v * 
  * en las fotos, huella de frenada) y qué valores desconoce; la app busca los que hacen que la
  * simulación lo reproduzca y propone aplicarlos.
  */
-export function openFitDialog(ed: Editor, focusId?: string) {
+export function openFitDialog(ed: Editor, focusId?: string, opts: { autoRun?: boolean } = {}) {
   const store = ed.store;
   const p = store.project;
   const range = p.timeline ?? { start: -4, end: 4 };
@@ -30,18 +30,22 @@ export function openFitDialog(ed: Editor, focusId?: string) {
     return sv ? sv.frames[sv.frames.length - 1] : null;
   };
   const maxCrush = (v: VehicleEntity) => (v.damage.length ? Math.max(...v.damage.map((z) => z.depth)) : 0);
+  // vehículos con algo observado: los que circulan y los parados con posiciones observadas tras el golpe
+  const observed = p.entities.filter((e): e is VehicleEntity => e.kind === 'vehicle' && !e.hidden && (driven.includes(e) || !!e.pins?.length));
 
   // ---- estado del formulario ----
   const obs = new Map(
-    driven.map((v) => [
+    observed.map((v) => [
       v.id,
       {
-        final: !!v.drive!.showFinal,
+        final: !!v.drive?.showFinal,
         crush: maxCrush(v) > 0,
-        skid: v.drive!.skidObs ?? null,
+        skid: v.drive?.skidObs ?? null,
+        pins: !!v.pins?.length,
       },
     ]),
   );
+  const fmtPinT = (t: number) => `t = ${t < 0 ? '−' : '+'}${Math.abs(t).toFixed(2).replace('.', ',')} s`;
   const isBrakeT = (v: VehicleEntity, prm: FitParam) => prm.kind === 'evT' && v.drive!.events.find((e) => e.id === prm.event)?.action === 'frenar';
   // velocidad que llevaría en t = 0 con su conducción actual (sin choques previos que la alteren)
   const baseInput = ed.world.simInput();
@@ -101,9 +105,22 @@ export function openFitDialog(ed: Editor, focusId?: string) {
     clear(body);
     // Lo observado
     body.append(h('div', { class: 'cat-title' }, 'Lo observado'));
-    for (const v of driven) {
+    for (const v of observed) {
       const o = obs.get(v.id)!;
       const lf = lastFrame(v.id);
+      const isDriven = driven.includes(v);
+      const pinsRow = v.pins?.length
+        ? h(
+            'label',
+            { class: 'check' },
+            h('input', { type: 'checkbox', checked: o.pins, onchange: (e: Event) => (o.pins = (e.target as HTMLInputElement).checked) }),
+            `Posiciones observadas en ${v.pins.map((q) => fmtPinT(q.t)).join(', ')}`,
+          )
+        : null;
+      if (!isDriven) {
+        body.append(h('div', { class: 'fit-veh' + (v.id === focusId ? ' focus' : '') }, h('div', { class: 'fit-veh-title' }, h('span', { class: 'dot', style: `background:${v.color}` }), `${v.label} · parado`), pinsRow));
+        continue;
+      }
       const now = lf ? `ahora el reposo simulado queda a ${fmt(Math.hypot(lf.x - v.x, lf.z - v.z), 1)} m y ${Math.round(angDiff(lf.h, v.heading))}°` : '';
       const crush = maxCrush(v);
       body.append(
@@ -118,6 +135,7 @@ export function openFitDialog(ed: Editor, focusId?: string) {
             'Posición final del croquis (contorno discontinuo)',
             now ? h('span', { class: 'muted' }, ` — ${now}`) : null,
           ),
+          pinsRow,
           h(
             'label',
             { class: 'check' + (crush ? '' : ' disabled') },
@@ -180,22 +198,30 @@ export function openFitDialog(ed: Editor, focusId?: string) {
     if (e.dist !== null) parts.push(`posición final a ${fmt(e.dist, 1)} m y ${Math.round(e.dh ?? 0)}°`);
     if (e.crushSim !== null) parts.push(`aplastamiento ${Math.round(e.crushSim * 100)} cm (medido ${Math.round((e.crushObs ?? 0) * 100)})`);
     if (e.skidSim !== null) parts.push(`huella ${fmt(e.skidSim, 1)} m (medida ${fmt(e.skidObs ?? 0, 1)})`);
+    for (const q of e.pins) parts.push(`en ${fmtPinT(q.t)} a ${fmt(q.dist, 1)} m y ${Math.round(q.dh)}°`);
     if (!e.contact) parts.push('no llega a chocar');
     if (e.dist !== null && e.moving > 0.3) parts.push(`aún se mueve a ${Math.round(e.moving * 3.6)} km/h`);
     return `${label}: ${parts.join(' · ') || 'sin datos que comparar'}`;
   };
   const good = (errs: TargetError[]) =>
-    errs.every((e) => (e.dist === null || (e.dist < 1.5 && (e.dh ?? 0) < 15)) && (e.crushSim === null || Math.abs(e.crushSim - (e.crushObs ?? 0)) < 0.2) && (e.skidSim === null || Math.abs(e.skidSim - (e.skidObs ?? 0)) < 2.5) && e.contact);
+    errs.every((e) => (e.dist === null || (e.dist < 1.5 && (e.dh ?? 0) < 15)) && (e.crushSim === null || Math.abs(e.crushSim - (e.crushObs ?? 0)) < 0.2) && (e.skidSim === null || Math.abs(e.skidSim - (e.skidObs ?? 0)) < 2.5) && e.pins.every((q) => q.dist < 1.5 && q.dh < 15) && e.contact);
 
   const run = async () => {
     const params = rows.filter((r) => r.on).map((r) => r.p);
     if (!params.length) return toast('Marca al menos una incógnita.', 'error');
     if (params.some((q) => !(q.max > q.min))) return toast('Revisa los límites: el máximo debe ser mayor que el mínimo.', 'error');
-    const targets: FitTarget[] = driven.map((v) => {
+    const targets: FitTarget[] = observed.map((v) => {
       const o = obs.get(v.id)!;
-      return { veh: v.id, final: o.final ? { x: v.x, z: v.z, h: v.heading } : null, crush: o.crush && maxCrush(v) > 0 ? maxCrush(v) : null, skid: o.skid };
+      const isDriven = driven.includes(v);
+      return {
+        veh: v.id,
+        final: isDriven && o.final ? { x: v.x, z: v.z, h: v.heading } : null,
+        crush: o.crush && maxCrush(v) > 0 ? maxCrush(v) : null,
+        skid: isDriven ? o.skid : null,
+        pins: o.pins ? (v.pins ?? []) : [],
+      };
     });
-    if (!targets.some((t) => t.final || t.crush !== null || t.skid !== null)) return toast('Marca al menos un dato observado (posición final, daños o huella).', 'error');
+    if (!targets.some((t) => t.final || t.crush !== null || t.skid !== null || t.pins?.length)) return toast('Marca al menos un dato observado (posición final, posiciones en un instante, daños o huella).', 'error');
     // los valores actuales dentro de los límites
     for (const q of params) q.value = Math.min(q.max, Math.max(q.min, q.value));
     const input = ed.world.simInput();
@@ -243,7 +269,7 @@ export function openFitDialog(ed: Editor, focusId?: string) {
     clear(resultsEl);
     if (!result) return;
     const { r, params } = result;
-    const lbl = (id: string) => driven.find((v) => v.id === id)?.label ?? id;
+    const lbl = (id: string) => observed.find((v) => v.id === id)?.label ?? id;
     resultsEl.append(h('div', { class: 'cat-title' }, 'Resultado'));
     const ok = good(r.best.errors);
     resultsEl.append(
@@ -382,4 +408,5 @@ export function openFitDialog(ed: Editor, focusId?: string) {
 
   renderForm();
   document.body.append(ov);
+  if (opts.autoRun) setTimeout(() => run(), 50);
 }

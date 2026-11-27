@@ -24,6 +24,7 @@ import { Outliner } from './ui/outliner';
 import { Player } from './anim/player';
 import { TimelineBar } from './ui/timeline';
 import { openReport } from './ui/reportDialog';
+import { openFitDialog } from './ui/fitDialog';
 import { simulate as __sim } from './physics/sim';
 import { analyze as __an } from './analysis/analyze';
 import { candidateParams as __cp, evaluate as __ev, fit as __fit } from './physics/fit';
@@ -65,6 +66,8 @@ async function boot() {
 
   const player = new Player(store, world, vp);
   ed.player = player;
+  // tras recolocar un vehículo después del choque, buscar las velocidades que lo reproducen
+  ed.onNeedsFit = (id) => openFitDialog(ed, id, { autoRun: true });
   new TimelineBar(vpEl, ed, player);
   world.onRebuilt = (() => {
     const prev = world.onRebuilt;

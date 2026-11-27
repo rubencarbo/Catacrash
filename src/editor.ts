@@ -7,6 +7,8 @@ import type { World } from './scene/world';
 import { Handles, type HandleKind } from './tools/handles';
 import { DEG } from './scene/utils';
 import type { Player } from './anim/player';
+import { repositionVehicle, type RepositionResult } from './physics/reposition';
+import { toast } from './ui/dom';
 
 export interface ToolEvent {
   e: PointerEvent | MouseEvent;
@@ -67,11 +69,29 @@ export class Editor {
     vp.scene.add(this.gizmo.getHelper());
     this.gizmo.addEventListener('dragging-changed', (ev) => {
       vp.controls.enabled = !ev.value;
-      if (ev.value) store.begin();
-      else {
+      if (ev.value) {
+        this.player?.pause();
+        this.vehicleMoved = false;
+        store.begin();
+      } else {
+        // un vehículo recolocado en el instante actual: adaptar la reconstrucción
+        const sel = store.selection && store.get(store.selection.id);
+        let res: RepositionResult | null = null;
+        if (this.vehicleMoved && sel && sel.kind === 'vehicle' && this.gizmo.object) {
+          const obj = this.gizmo.object;
+          const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
+          const pose = { x: obj.position.x, z: obj.position.z, h: ((-eu.y / DEG) % 360 + 360) % 360 };
+          res = repositionVehicle(world, sel, this.player?.time ?? 0, pose);
+        }
+        this.vehicleMoved = false;
         store.end();
         const id = store.selection?.id;
-        if (id) store.notify({ type: 'entity', id });
+        if (res) store.notify({ type: 'env' });
+        else if (id) store.notify({ type: 'entity', id });
+        if (res) {
+          toast(res.message);
+          if (res.needsFit && sel) this.onNeedsFit?.(sel.id);
+        }
       }
     });
     this.gizmo.addEventListener('objectChange', () => this.onGizmoChange());
@@ -133,7 +153,10 @@ export class Editor {
 
   // ---------- puntero ----------
   private onDown(e: PointerEvent) {
-    if ((e.target as HTMLElement).closest('.labels-layer .label button')) return;
+    const tgt = e.target as HTMLElement;
+    if (tgt.closest('.labels-layer .label button')) return;
+    // la barra de tiempo, la brújula y demás controles superpuestos no son clics en la escena
+    if (tgt !== this.vp.renderer.domElement && !tgt.closest('.labels-layer')) return;
     this.downAt = { x: e.clientX, y: e.clientY, button: e.button };
     if (e.button !== 0) return;
     if (this.gizmo.object && this.gizmo.axis) return; // lo gestiona el gizmo
@@ -278,14 +301,9 @@ export class Editor {
     const obj = this.gizmo.object;
     if (!e || !obj) return;
     if (e.kind === 'vehicle') {
-      const eu = new THREE.Euler().setFromQuaternion(obj.quaternion, 'YXZ');
-      e.x = obj.position.x;
-      e.z = obj.position.z;
-      e.heading = ((-eu.y / DEG) % 360 + 360) % 360;
-      // conducido: el gizmo mueve la posición final observada (fantasma); si no, el propio vehículo
-      if (this.world.isDriven(e)) this.world.placeGhost(obj, e);
-      else this.world.placeVehicle(obj, e);
-      this.inspectorSync?.();
+      // se mueve el vehículo tal como está en el instante actual; al soltarlo se recalcula
+      obj.position.y = this.world.surfaceHeight(obj.position.x, obj.position.z);
+      this.vehicleMoved = true;
       return;
     }
     if (e.kind !== 'prop') return;
@@ -296,6 +314,10 @@ export class Editor {
     this.inspectorSync?.();
   }
   inspectorSync: (() => void) | null = null;
+  /** Se ha arrastrado el vehículo seleccionado durante el gesto actual del gizmo. */
+  private vehicleMoved = false;
+  /** Tras recolocar un vehículo después del choque: buscar velocidades que lo reproduzcan. */
+  onNeedsFit: ((id: string) => void) | null = null;
   /** Texto de ayuda contextual en la barra de estado. */
   setHint: ((s: string) => void) | null = null;
   /** Vuelve a dibujar el panel de opciones de la herramienta activa. */

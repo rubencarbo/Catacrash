@@ -1,5 +1,5 @@
 import type { DriverEvent, VehicleEntity } from '../model/types';
-import { simulate, soloSpeedAt, type SimInput, type SimResult } from './sim';
+import { frameAt, simulate, soloSpeedAt, type SimInput, type SimResult } from './sim';
 
 /**
  * Ajuste automático («reconstrucción inversa»): busca los valores desconocidos de la conducción
@@ -38,6 +38,8 @@ export interface FitTarget {
   crush: number | null;
   /** Longitud de huella de frenada antes del impacto observada (m). */
   skid: number | null;
+  /** Posiciones observadas en instantes concretos. */
+  pins?: { t: number; x: number; z: number; h: number }[];
 }
 
 export interface FitProblem {
@@ -56,6 +58,7 @@ export interface TargetError {
   skidObs: number | null;
   moving: number;
   contact: boolean;
+  pins: { t: number; dist: number; dh: number }[];
 }
 
 export interface FitEval {
@@ -168,7 +171,7 @@ export function measure(res: SimResult, targets: FitTarget[], impact: boolean): 
     const sv = res.vehicles.get(tg.veh);
     if (!sv) continue;
     const last = sv.frames[sv.frames.length - 1];
-    const err: TargetError = { veh: tg.veh, dist: null, dh: null, crushSim: null, crushObs: tg.crush, skidSim: null, skidObs: tg.skid, moving: last.v, contact: sv.firstContact !== null };
+    const err: TargetError = { veh: tg.veh, dist: null, dh: null, crushSim: null, crushObs: tg.crush, skidSim: null, skidObs: tg.skid, moving: last.v, contact: sv.firstContact !== null, pins: [] };
     if (tg.final) {
       err.dist = Math.hypot(last.x - tg.final.x, last.z - tg.final.z);
       err.dh = angDiff(last.h, tg.final.h);
@@ -183,6 +186,13 @@ export function measure(res: SimResult, targets: FitTarget[], impact: boolean): 
     if (tg.skid !== null) {
       err.skidSim = skidLength(res, tg.veh);
       cost += ((err.skidSim - tg.skid) / SIGMA.skid) ** 2;
+    }
+    for (const pn of tg.pins ?? []) {
+      const f = frameAt(sv, pn.t);
+      const dist = Math.hypot(f.x - pn.x, f.z - pn.z);
+      const dh = angDiff(f.h, pn.h);
+      err.pins.push({ t: pn.t, dist, dh });
+      cost += (dist / SIGMA.pos) ** 2 + (dh / SIGMA.ang) ** 2;
     }
     if (impact && !err.contact) cost += 400;
     errors.push(err);
@@ -402,7 +412,7 @@ export async function fit(pb: FitProblem, opt: FitOptions = {}): Promise<FitResu
   const bestU = toU(best!.x);
   const bestCost = best!.cost;
   // tolerancia: la incertidumbre propia de un croquis (≈ 2 m o 20° por posición, 30 cm de daños, 3 m de huella)
-  const terms = pb.targets.reduce((s, t) => s + (t.final ? 1 : 0) + (t.crush !== null ? 1 : 0) + (t.skid !== null ? 1 : 0), 0);
+  const terms = pb.targets.reduce((s, t) => s + (t.final ? 1 : 0) + (t.crush !== null ? 1 : 0) + (t.skid !== null ? 1 : 0) + (t.pins?.length ?? 0), 0);
   const tol = bestCost + 4 * Math.max(1, terms);
   const ranges: [number, number][] = [];
   const save = best!;

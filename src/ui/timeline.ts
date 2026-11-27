@@ -113,7 +113,12 @@ export class TimelineBar {
     this.slider.value = String(this.player.time);
     this.label.textContent = `t = ${fmtT(this.player.time)}`;
     this.label.classList.toggle('after', this.player.time >= 0);
-    this.playBtn.innerHTML = this.player.playing ? ICONS.pause : ICONS.play;
+    // cambiar el icono solo si cambia el estado: reemplazarlo bajo el puntero anula el clic
+    const icon = this.player.playing ? ICONS.pause : ICONS.play;
+    if (this.playBtn.dataset.icon !== icon) {
+      this.playBtn.innerHTML = icon;
+      this.playBtn.dataset.icon = icon;
+    }
     // Velocidades instantáneas de los vehículos animados
     const parts: string[] = [];
     for (const e of this.ed.store.project.entities) {

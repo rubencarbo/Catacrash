@@ -35,6 +35,13 @@ Ajustar a los hechos (reconstrucción inversa): cuando no se conocen las velocid
 - Resultado: valores propuestos, margen compatible con la precisión de un croquis y, si las hay, otras combinaciones distintas que también cuadran (la solución no siempre es única). Se aplica con un clic y se puede deshacer.
 - El instante de la frenada solo se busca si hay huella medida: la posición final por sí sola no lo determina.
 
+Recolocar durante el accidente: con la barra de tiempo en cualquier instante, el vehículo seleccionado se arrastra o gira (G / R) tal como está en ese momento y la reconstrucción se adapta.
+- Antes del choque: la ruta se rehace para pasar por la nueva posición y la velocidad se recalcula para que esté ahí en ese instante (posiciones iniciales o de aproximación).
+- En el instante del impacto: además se desplaza el punto de colisión y los vehículos sincronizados llegan al nuevo punto.
+- Después del choque o en reposo: queda como posición observada (o posición final) y se lanza «Ajustar a los hechos» para buscar las velocidades que la reproducen. Las posiciones observadas se ven como contornos con su instante y se pueden quitar en el inspector.
+
+Daños: la carrocería se deforma de forma progresiva (aplastamiento con perfil redondeado, compresión en acordeón, capó pandeado, costados abombados, esquinas plegadas, arrugas irregulares), con pintura rascada, faros y pilotos rotos, retrovisores arrancados, parabrisas agrietado en golpes graves, ruedas desplazadas y restos (cristales, plásticos, pintura) esparcidos en el suelo desde el instante del choque.
+
 Informe del accidente (botón del informe en la barra superior): análisis automático de la reconstrucción, orientativo y no pericial.
 - Cronología: acciones de los conductores, inicio de la invasión del carril contrario, momento en que cada conductor puede ver al otro (línea de visión contra el relieve, árboles, edificios y muros), contactos y reposo.
 - Factores: velocidad frente al límite (última señal R-301 que encara el vehículo o límite genérico de la vía), invasión del carril contrario o salida de la calzada, radio de la curva frente a la velocidad (habitual y límite físico), adherencia utilizada, tiempo de reacción (referencia 1 s) y si podía detenerse antes del punto de colisión, firme, luz y niebla.
