@@ -658,6 +658,14 @@ function renderMarks(el: HTMLElement, ed: Editor, e: VehicleEntity) {
             'Frenó antes del choque (1 s antes; muévelo en la barra de tiempo)',
           )
         : '',
+      m.col
+        ? h(
+            'label',
+            { class: 'check', title: 'Tras el golpe el conductor pierde el control; lo habitual es que pise el freno pasado el tiempo de reacción (0,8 s). Los daños frenan algo en cualquier caso.' },
+            h('input', { type: 'checkbox', checked: (d.postBrake ?? 0.6) > 0, onchange: (ev: Event) => edit(() => (d.postBrake = (ev.target as HTMLInputElement).checked ? 0.6 : 0)) }),
+            'Frenó después del choque (a los 0,8 s)',
+          )
+        : '',
       h(
         'p',
         { class: 'muted' },

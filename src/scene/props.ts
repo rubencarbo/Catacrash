@@ -571,11 +571,17 @@ function stopLine(P: Params): THREE.Object3D {
     const ctx = (tex.image as HTMLCanvasElement).getContext('2d')!;
     ctx.clearRect(0, 0, 512, 1024);
     ctx.fillStyle = '#f2f2ee';
-    ctx.font = 'bold 380px Arial';
+    // el rótulo ocupa el ancho del plano: letras estrechas y alargadas, como las marcas viales
+    let fs = 380;
+    ctx.font = `bold ${fs}px Arial`;
+    fs = Math.floor((fs * 490) / ctx.measureText('STOP').width);
+    ctx.font = `bold ${fs}px Arial`;
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.save();
-    ctx.scale(1, 2.5);
-    ctx.fillText('STOP', 256, 300);
+    ctx.translate(256, 512);
+    ctx.scale(1, Math.min(6, 900 / fs));
+    ctx.fillText('STOP', 0, 0);
     ctx.restore();
     tex.needsUpdate = true;
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 4).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.3 }));

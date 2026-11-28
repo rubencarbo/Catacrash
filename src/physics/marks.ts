@@ -224,10 +224,12 @@ export function applyMarks(world: World, e: VehicleEntity) {
   if (m.col) {
     d.sync = true;
     d.syncPoint = frontPoint(e, m.col);
+    d.colPose = { ...m.col };
     delete d.startS;
   } else {
     d.sync = false;
     delete d.syncPoint;
+    delete d.colPose;
     // la posición inicial está al empezar la secuencia
     d.startS = new Path(path).project(r0.x, r0.z);
   }
@@ -243,7 +245,7 @@ export function applyAllMarks(world: World, p: Project) {
   if (!vehicles.length) return;
   for (const v of vehicles) applyMarks(world, v);
   const cols = vehicles.filter((v) => v.marks?.col).map((v) => frontPoint(v, v.marks!.col!));
-  if (cols.length) p.impact = { x: cols.reduce((s, c) => s + c.x, 0) / cols.length, z: cols.reduce((s, c) => s + c.z, 0) / cols.length };
+  if (cols.length && !p.impactLocked) p.impact = { x: cols.reduce((s, c) => s + c.x, 0) / cols.length, z: cols.reduce((s, c) => s + c.z, 0) / cols.length };
   // Inicio de la secuencia. Las posiciones ① se consideran simultáneas (como en el croquis: dónde
   // estaba cada uno cuando surgió el peligro). Los vehículos con velocidad «calculada» la ajustan
   // para estar en su ① al empezar; el de recorrido más largo va a la velocidad habitual de la vía.

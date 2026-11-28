@@ -308,6 +308,10 @@ export interface Drive {
   startS?: number;
   /** Velocidad calculada para que esté en su posición ① al empezar (si no, la indicada). */
   speedAuto?: boolean;
+  /** Posición ② (centro y rumbo) que debe tener exactamente en t = 0 (la pone el croquis). */
+  colPose?: Pose;
+  /** Frenada del conductor tras el choque (0–1; por defecto 0,6 pasados 0,8 s). 0 = no frena. */
+  postBrake?: number;
   /** Punto que alcanza su frontal en t = 0 (si no, el punto de colisión común). */
   syncPoint?: { x: number; z: number };
 }
@@ -436,6 +440,8 @@ export interface Project {
   timeline?: Timeline;
   /** Punto de colisión previsto (para sincronizar a los vehículos en t = 0). */
   impact?: { x: number; z: number } | null;
+  /** El punto de colisión lo fija el croquis (PC): no se recalcula a partir de las posiciones ②. */
+  impactLocked?: boolean;
   /** Notas del caso (p. ej. lo leído en el croquis: resumen, causa, sentidos). */
   notes?: string;
 }

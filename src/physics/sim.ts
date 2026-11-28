@@ -21,6 +21,8 @@ import { Path } from './path';
 const G = 9.81;
 const DT = 0.001;
 const REC = 10; // grabar cada 10 pasos (100 Hz)
+/** Tiempo de reacción del conductor tras el choque antes de frenar (s). */
+const POST_REACTION = 0.8;
 
 export type SurfaceKind = 'asfalto' | 'tierra' | 'hierba';
 
@@ -169,6 +171,8 @@ class Body {
   firstContact: number | null = null;
   impactSpeed: number | null = null;
   restTime: number | null = null;
+  /** Instante en que el conductor perdió el control (primer choque). */
+  lostControl: number | null = null;
 
   constructor(e: VehicleEntity) {
     this.e = e;
@@ -237,10 +241,19 @@ class Body {
     this.fz += Fz;
     this.tq += (px - this.x) * Fz - (pz - this.z) * Fx;
   }
-  stiffness() {
+  /**
+   * Rigidez de la carrocería frente al aplastamiento (N/m, a todo lo ancho). Si se da la normal del
+   * golpe (hacia fuera del vehículo, en el mundo), el costado es bastante más blando que el frontal
+   * (valores medios de ensayos: frontal ≈ 1 MN/m en un compacto, lateral ≈ 0,55 de eso).
+   */
+  stiffness(nx?: number, nz?: number) {
     if (this.kind === 'ped') return 4e4;
     if (this.kind === 'two' || TWO_WHEELS.includes(this.e.spec.tipo)) return 2.5e5;
-    return 560 * this.m;
+    const k = 800 * this.m;
+    if (nx === undefined || nz === undefined) return k;
+    const [fx, fz] = this.fwd;
+    const lon = Math.abs(nx * fx + nz * fz);
+    return k * (0.55 + 0.45 * lon);
   }
 }
 
@@ -404,6 +417,13 @@ function drive(b: Body, t: number) {
   if (b.kind !== 'car' && b.kind !== 'two') return;
   if (!b.controlled) {
     b.throttle = 0;
+    // tras el choque: arrastre por los daños (ruedas y chapa) y, pasado el tiempo de reacción,
+    // frenada del conductor (lo habitual; se puede quitar en la ficha de conducción)
+    if (b.lostControl !== null) {
+      const pb = b.e.drive?.postBrake ?? 0.6;
+      const since = t - b.lostControl;
+      b.brake = Math.max(0.2, since > POST_REACTION ? pb : 0);
+    }
     return;
   }
   const [fx, fz] = b.fwd;
@@ -495,23 +515,37 @@ function initBody(b: Body, input: SimInput, s0: number | null) {
 
 interface PairState {
   dmax: number;
+  /** Hay un contacto abierto (choque en curso o carrocerías aún solapadas). */
   active: boolean;
   contact: SimContact | null;
-  vA0: [number, number];
-  vB0: [number, number];
   quiet: number;
   peakPoly: Poly;
   crushA: number;
   crushB: number;
-  /** Normal del contacto en ejes de A (adelante, derecha), fijada al empezar. */
-  nLocal: [number, number] | null;
-  peakN: [number, number];
+  /** Energía del impacto principal que absorbe cada uno (J). */
+  eA: number;
+  eB: number;
+  /** Fuerza del pulso de choque en curso (sobre B; −F sobre A) y pasos que le quedan. */
+  F: [number, number];
+  left: number;
+  /** El pulso en curso es el del impacto principal. */
+  mainPulse: boolean;
+  /** Mayor impulso de este par (el impacto principal). */
+  jMax: number;
+  /** Normal del impacto principal (de A hacia B). */
+  nx: number;
+  nz: number;
+  /** Último punto de contacto. */
+  px: number;
+  pz: number;
   /** Zona de solape y normal hacia fuera en ejes locales de A y B (lateral, longitudinal) en la penetración máxima. */
   locA: Poly;
   locB: Poly;
   nA: [number, number];
   nB: [number, number];
 }
+
+const newPair = (): PairState => ({ dmax: 0, active: false, contact: null, quiet: 0, peakPoly: [], crushA: 0, crushB: 0, eA: 0, eB: 0, F: [0, 0], left: 0, mainPulse: false, jMax: 0, nx: 1, nz: 0, px: 0, pz: 0, locA: [], locB: [], nA: [0, 1], nB: [0, 1] });
 
 /** Fuerzas de los neumáticos y la pendiente sobre un cuerpo. */
 function tireForces(b: Body, input: SimInput, record: boolean, t: number) {
@@ -613,58 +647,228 @@ function tireForces(b: Body, input: SimInput, record: boolean, t: number) {
   b.fz += -b.m * G * b.gz;
 }
 
+/**
+ * Choque por impulso (modelo de impacto instantáneo usado en reconstrucción, tipo Kudlich-Slibar):
+ * en el punto de contacto se conserva el momento lineal y angular, la velocidad relativa normal se
+ * invierte con un coeficiente de restitución bajo (la chapa apenas devuelve energía) y la tangencial
+ * se anula si el rozamiento entre carrocerías lo permite (si no, deslizan con μ). Por construcción
+ * la energía cinética solo puede disminuir; lo que se pierde es la deformación.
+ * El impulso se reparte como un pulso de fuerza durante la duración típica del choque (≈ 0,1 s),
+ * para que la animación muestre la deformación progresiva.
+ */
+function restitution(vnAbs: number, ped: boolean) {
+  if (ped) return 0.05;
+  // ≈ 0,3 a 10 km/h, ≈ 0,1 a 50 km/h, ≈ 0,05 por encima de 80 km/h (datos de ensayos de choque)
+  return Math.max(0.05, Math.min(0.3, 0.35 - 0.0055 * vnAbs * 3.6));
+}
+
+interface Impulse {
+  J: [number, number];
+  /** Energía cinética disipada (J). */
+  E: number;
+}
+
+function kineticEnergy(m: number, I: number, vx: number, vz: number, w: number) {
+  return 0.5 * m * (vx * vx + vz * vz) + 0.5 * I * w * w;
+}
+
+/** Impulso sobre B (−J sobre A) en el punto P con normal n de A hacia B. */
+function solveImpulse(A: Body, B: Body | null, px: number, pz: number, nx: number, nz: number, eps: number, mu: number): Impulse | null {
+  const tx = -nz;
+  const tz = nx;
+  const rAx = px - A.x;
+  const rAz = pz - A.z;
+  const rBx = B ? px - B.x : 0;
+  const rBz = B ? pz - B.z : 0;
+  const [vax, vaz] = A.pointVel(px, pz);
+  const [vbx, vbz] = B ? B.pointVel(px, pz) : [0, 0];
+  const vrx = vbx - vax;
+  const vrz = vbz - vaz;
+  const vn = vrx * nx + vrz * nz;
+  if (vn >= 0) return null;
+  const vt = vrx * tx + vrz * tz;
+  // K = Σ (I/m + r⊥ r⊥ᵀ / Iz), r⊥ = (−rz, rx)
+  const k = (m: number, I: number, rx: number, rz: number) => {
+    const qx = -rz;
+    const qz = rx;
+    return [1 / m + (qx * qx) / I, (qx * qz) / I, 1 / m + (qz * qz) / I];
+  };
+  const [a1, b1, c1] = k(A.m, A.Iz, rAx, rAz);
+  const [a2, b2, c2] = B ? k(B.m, B.Iz, rBx, rBz) : [0, 0, 0];
+  const K11 = a1 + a2;
+  const K12 = b1 + b2;
+  const K22 = c1 + c2;
+  const det = K11 * K22 - K12 * K12;
+  const apply = (Jx: number, Jz: number): number => {
+    // energía antes − después
+    const before = kineticEnergy(A.m, A.Iz, A.vx, A.vz, A.w) + (B ? kineticEnergy(B.m, B.Iz, B.vx, B.vz, B.w) : 0);
+    const wa = A.w - (rAx * Jz - rAz * Jx) / A.Iz;
+    const after = kineticEnergy(A.m, A.Iz, A.vx - Jx / A.m, A.vz - Jz / A.m, wa) + (B ? kineticEnergy(B.m, B.Iz, B.vx + Jx / B.m, B.vz + Jz / B.m, B.w + (rBx * Jz - rBz * Jx) / B.Iz) : 0);
+    return before - after;
+  };
+  const tryIt = (e: number): Impulse | null => {
+    // adherencia: velocidad común en el punto y rebote e en la normal
+    const dvx = -(1 + e) * vn * nx - vt * tx;
+    const dvz = -(1 + e) * vn * nz - vt * tz;
+    let Jx = (K22 * dvx - K12 * dvz) / det;
+    let Jz = (-K12 * dvx + K11 * dvz) / det;
+    let Jn = Jx * nx + Jz * nz;
+    const Jt = Jx * tx + Jz * tz;
+    if (!(Jn > 0) || Math.abs(Jt) > mu * Jn) {
+      // deslizamiento entre carrocerías: rozamiento opuesto al deslizamiento
+      const sg = Math.sign(vt) || 1;
+      const dx = nx - mu * sg * tx;
+      const dz = nz - mu * sg * tz;
+      const den = nx * (K11 * dx + K12 * dz) + nz * (K12 * dx + K22 * dz);
+      Jn = den > 1e-9 ? (-(1 + e) * vn) / den : 0;
+      Jx = Jn * dx;
+      Jz = Jn * dz;
+    }
+    const E = apply(Jx, Jz);
+    return E >= 0 ? { J: [Jx, Jz], E } : null;
+  };
+  let r = det > 1e-12 ? tryIt(eps) ?? tryIt(0) : null;
+  if (!r) {
+    // sin rozamiento ni rebote: siempre disipa
+    const den = nx * (K11 * nx + K12 * nz) + nz * (K12 * nx + K22 * nz);
+    const Jn = -vn / den;
+    r = { J: [Jn * nx, Jn * nz], E: Math.max(0, apply(Jn * nx, Jn * nz)) };
+  }
+  return r;
+}
+
 function contactForces(A: Body, B: Body | null, ob: Obstacle | null, st: PairState, t: number, contacts: SimContact[]) {
   const ra = A.rect();
   const rb = B ? B.rect() : obstacleRect(ob!);
   const ca = A.center();
   const cb: [number, number] = B ? B.center() : [ob!.cx, ob!.cz];
-  let axis: [number, number] | undefined;
-  if (st.active && st.nLocal) {
-    const [fx, fz] = A.fwd;
-    const [rx, rz] = A.right;
-    axis = [fx * st.nLocal[0] + rx * st.nLocal[1], fz * st.nLocal[0] + rz * st.nLocal[1]];
+  const hit = collide(ra, rb, ca, cb);
+  if (hit) {
+    st.px = hit.cx;
+    st.pz = hit.cz;
+    st.quiet = 0;
   }
-  const hit = collide(ra, rb, ca, cb, axis);
+  // pulso de choque en curso
+  if (st.left > 0) {
+    if (B) B.applyForce(st.F[0], st.F[1], st.px, st.pz);
+    A.applyForce(-st.F[0], -st.F[1], st.px, st.pz);
+    st.left--;
+    if (st.contact) st.contact.t1 = t;
+  }
   if (!hit) {
-    if (st.active) {
-      st.quiet++;
-      if (st.quiet > 20) endContact(A, B, st, t);
-    }
+    if (st.active && st.left <= 0 && ++st.quiet > 20) endContact(A, B, st, t);
     return;
   }
-  const kA = A.stiffness();
-  const kB = B ? B.stiffness() : ob!.k;
-  const kS = Number.isFinite(kB) ? (kA * kB) / (kA + kB) : kA;
-  // un obstáculo estrecho (poste, árbol) solo carga una parte del frontal: menos rigidez, más intrusión
-  const widthRef = B ? Math.min(A.W, B.W) : A.W;
-  const k = kS * Math.max(0.25, Math.min(1, hit.width / widthRef));
+  // zona de solape más profunda durante el pulso de choque (para los daños)
+  if (st.left > 0 && st.mainPulse && hit.d >= st.dmax) {
+    st.dmax = hit.d;
+    st.peakPoly = hit.poly;
+    const toLocal = (body: Body, nx: number, nz: number): [Poly, [number, number]] => {
+      const [cx, cz] = body.center();
+      const [fx, fz] = body.fwd;
+      const [rx, rz] = body.right;
+      const loc = hit.poly.map(([x, z]) => [(x - cx) * rx + (z - cz) * rz, (x - cx) * fx + (z - cz) * fz] as [number, number]);
+      return [loc, [nx * rx + nz * rz, nx * fx + nz * fz]];
+    };
+    // la normal es la del impacto (la del solape cambia cuando las carrocerías se meten una en otra)
+    [st.locA, st.nA] = toLocal(A, st.nx, st.nz);
+    if (B) [st.locB, st.nB] = toLocal(B, -st.nx, -st.nz);
+  }
+  if (st.left > 0) return;
   const [vax, vaz] = A.pointVel(hit.cx, hit.cz);
   const [vbx, vbz] = B ? B.pointVel(hit.cx, hit.cz) : [0, 0];
-  const rvx = vbx - vax;
-  const rvz = vbz - vaz;
-  const vn = rvx * hit.nx + rvz * hit.nz; // < 0 se acercan
-  const ku = 30 * k;
-  let Fn: number;
-  const mRed = B ? (A.m * B.m) / (A.m + B.m) : A.m;
-  if (hit.d >= st.dmax || vn < 0) {
-    st.dmax = Math.max(st.dmax, hit.d);
-    Fn = k * hit.d + (vn < 0 ? -vn * 0.3 * Math.sqrt(k * mRed) : 0);
-  } else {
-    const dp = st.dmax * (1 - k / ku);
-    Fn = Math.max(0, ku * (hit.d - dp));
+  const vn = (vbx - vax) * hit.nx + (vbz - vaz) * hit.nz;
+  const ped = A.kind === 'ped' || B?.kind === 'ped';
+  const mu = ped ? 0.3 : 0.55;
+  // tras un impacto las carrocerías quedan encajadas lo que se han aplastado; más allá de eso no
+  // pueden atravesarse (al girar juntas, por ejemplo)
+  const allowed = st.active ? st.crushA + st.crushB : 0;
+  const excess = hit.d - allowed;
+  if (st.active && excess > 0.02) {
+    const sep = Math.min(excess, 0.004);
+    const wA = B ? B.m / (A.m + B.m) : 1;
+    A.x -= hit.nx * sep * wA;
+    A.z -= hit.nz * sep * wA;
+    if (B) {
+      B.x += hit.nx * sep * (1 - wA);
+      B.z += hit.nz * sep * (1 - wA);
+    }
   }
-  if (Fn <= 0) return;
-  if (!st.active) {
+  if (vn > -0.3 || (st.active && excess <= 0)) return;
+  // golpe suave dentro de un contacto ya abierto: choque plástico inmediato (sin pulso)
+  if (st.active && vn > -2) {
+    const imp = solveImpulse(A, B, hit.cx, hit.cz, hit.nx, hit.nz, 0, mu);
+    if (!imp) return;
+    if (B) {
+      B.vx += imp.J[0] / B.m;
+      B.vz += imp.J[1] / B.m;
+      B.w += ((hit.cx - B.x) * imp.J[1] - (hit.cz - B.z) * imp.J[0]) / B.Iz;
+    }
+    A.vx -= imp.J[0] / A.m;
+    A.vz -= imp.J[1] / A.m;
+    A.w -= ((hit.cx - A.x) * imp.J[1] - (hit.cz - A.z) * imp.J[0]) / A.Iz;
+    if (st.contact) st.contact.energy += imp.E;
+    return;
+  }
+  // impacto (el primero o uno secundario: p. ej. la trasera que gira y golpea)
+  const imp = solveImpulse(A, B, hit.cx, hit.cz, hit.nx, hit.nz, restitution(-vn, ped), mu);
+  if (!imp) return;
+  const Jm0 = Math.hypot(imp.J[0], imp.J[1]);
+  st.mainPulse = Jm0 > st.jMax;
+  if (st.mainPulse) {
+    // el impacto principal decide la normal de los daños
+    st.jMax = Jm0;
+    st.nx = hit.nx;
+    st.nz = hit.nz;
+    st.dmax = 0;
+  }
+  // reparto de la energía de deformación según la rigidez (muelles en serie)
+  const kA = A.stiffness(hit.nx, hit.nz);
+  const kB = B ? B.stiffness(-hit.nx, -hit.nz) : ob!.k;
+  const shareA = Number.isFinite(kB) ? kB / (kA + kB) : 1;
+  // la energía del impacto principal se acumula en su zona; un golpe secundario deforma otra zona
+  const eA = imp.E * shareA;
+  const eB = imp.E * (1 - shareA);
+  if (st.mainPulse || st.eA === 0) {
+    st.eA += eA;
+    st.eB += eB;
+  }
+  // ancho de enganche: solape de las dos carrocerías en la dirección perpendicular al golpe
+  // (al primer roce solo se tocan las esquinas; lo que se aplasta es todo el solape)
+  const tx = -hit.nz;
+  const tz = hit.nx;
+  const span = (poly: Poly): [number, number] => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const [x, z] of poly) {
+      const v = x * tx + z * tz;
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+    return [lo, hi];
+  };
+  const [a0, a1] = span(ra);
+  const [b0, b1] = span(rb);
+  const engage = Math.max(hit.width, Math.min(a1, b1) - Math.max(a0, b0));
+  const widthRef = B ? Math.min(a1 - a0, b1 - b0) : a1 - a0;
+  const wf = Math.max(0.25, Math.min(1, engage / Math.max(0.3, widthRef)));
+  const cA0 = st.crushA;
+  const cB0 = st.crushB;
+  const cAi = Math.sqrt((2 * (st.mainPulse ? st.eA : eA)) / (kA * wf));
+  const cBi = B ? Math.sqrt((2 * (st.mainPulse ? st.eB : eB)) / (kB * wf)) : 0;
+  st.crushA = Math.min(1.2, Math.max(st.crushA, cAi));
+  st.crushB = Math.min(1.2, Math.max(st.crushB, cBi));
+  // duración del pulso: la que hace falta para aplastar eso a la velocidad de acercamiento
+  // (≈ 0,07–0,12 s en choques de turismos, como en los ensayos)
+  const crushNew = st.crushA - cA0 + (st.crushB - cB0);
+  const dur = ped ? 0.05 : Math.max(0.04, Math.min(0.15, (2 * Math.max(crushNew, 0.05)) / -vn));
+  const n = Math.max(1, Math.round(dur / DT));
+  st.F = [imp.J[0] / n / DT, imp.J[1] / n / DT];
+  st.left = n;
+  const Jm = Math.hypot(imp.J[0], imp.J[1]);
+  if (!st.active || !st.contact) {
     st.active = true;
     st.quiet = 0;
-    st.dmax = 0;
-    {
-      const [fx, fz] = A.fwd;
-      const [rx, rz] = A.right;
-      st.nLocal = [hit.nx * fx + hit.nz * fz, hit.nx * rx + hit.nz * rz];
-    }
-    st.vA0 = [A.vx, A.vz];
-    st.vB0 = B ? [B.vx, B.vz] : [0, 0];
     st.contact = {
       a: A.id,
       b: B ? B.id : ob!.id,
@@ -681,64 +885,34 @@ function contactForces(A: Body, B: Body | null, ob: Obstacle | null, st: PairSta
       energy: 0,
     };
     contacts.push(st.contact);
-    for (const body of B ? [A, B] : [A]) {
-      if (body.firstContact === null) {
-        body.firstContact = t;
-        body.impactSpeed = body.speed;
-      }
-      body.hadContact = true;
-      body.controlled = false;
-      body.rested = false;
-    }
   }
-  st.quiet = 0;
-  const c = st.contact!;
-  if (Fn > 0.03 * c.peakForce) c.t1 = t;
-  if (Fn > c.peakForce) {
-    c.peakForce = Fn;
+  const c = st.contact;
+  // el punto de mayor fuerza es el del impacto principal
+  if (Jm / dur > c.peakForce) {
+    c.peakForce = Jm / dur;
     c.x = hit.cx;
     c.z = hit.cz;
   }
-  if (hit.d >= st.dmax - 1e-6) {
-    st.peakPoly = hit.poly;
-    st.peakN = [hit.nx, hit.nz];
-    const toLocal = (body: Body, nx: number, nz: number): [Poly, [number, number]] => {
-      const [cx, cz] = body.center();
-      const [fx, fz] = body.fwd;
-      const [rx, rz] = body.right;
-      const loc = hit.poly.map(([x, z]) => [(x - cx) * rx + (z - cz) * rz, (x - cx) * fx + (z - cz) * fz] as [number, number]);
-      return [loc, [nx * rx + nz * rz, nx * fx + nz * fz]];
-    };
-    [st.locA, st.nA] = toLocal(A, hit.nx, hit.nz);
-    if (B) [st.locB, st.nB] = toLocal(B, -hit.nx, -hit.nz);
-  }
-  st.crushA = Math.max(st.crushA, (st.dmax * kS) / kA);
-  st.crushB = Number.isFinite(kB) ? Math.max(st.crushB, (st.dmax * kS) / kB) : 0;
+  c.energy += imp.E;
+  c.dvA += Jm / A.m;
+  c.dvB += B ? Jm / B.m : 0;
   c.crushA = st.crushA;
   c.crushB = st.crushB;
-  // rozamiento entre carrocerías
-  const tvx = rvx - vn * hit.nx;
-  const tvz = rvz - vn * hit.nz;
-  const tv = Math.hypot(tvx, tvz);
-  const mu = 0.5;
-  const ft = tv > 1e-6 ? (mu * Fn * Math.min(1, tv / 0.5)) / tv : 0;
-  // fuerza sobre B (y la opuesta sobre A)
-  const Fbx = Fn * hit.nx - ft * tvx;
-  const Fbz = Fn * hit.nz - ft * tvz;
-  if (B) B.applyForce(Fbx, Fbz, hit.cx, hit.cz);
-  A.applyForce(-Fbx, -Fbz, hit.cx, hit.cz);
-  c.energy += Math.abs(Fn * vn * DT) * (vn < 0 ? 1 : -0.2);
+  for (const body of B ? [A, B] : [A]) {
+    if (body.firstContact === null) {
+      body.firstContact = t;
+      body.impactSpeed = body.speed;
+    }
+    body.hadContact = true;
+    if (body.controlled) body.lostControl = t;
+    body.controlled = false;
+    body.rested = false;
+  }
 }
 
-function endContact(A: Body, B: Body | null, st: PairState, t: number) {
-  const c = st.contact;
-  if (c) {
-    c.dvA = Math.hypot(A.vx - st.vA0[0], A.vz - st.vA0[1]);
-    c.dvB = B ? Math.hypot(B.vx - st.vB0[0], B.vz - st.vB0[1]) : 0;
-  }
+function endContact(_A: Body, _B: Body | null, st: PairState, _t: number) {
   st.active = false;
   st.quiet = 0;
-  st.nLocal = null;
 }
 
 /** Zona dañada deducida del solape (en ejes locales: lateral, longitudinal) y la normal hacia fuera. */
@@ -835,12 +1009,12 @@ function stepOnce(bodies: Body[], input: SimInput, t: number, pairs: Map<string,
         const r = (Math.hypot(A.L, A.W) + Math.hypot(B.L, B.W)) / 2;
         if ((ax - bx) ** 2 + (az - bz) ** 2 > r * r) {
           const st = pairs.get(A.id + '|' + B.id);
-          if (st?.active) contactForces(A, B, null, st, t, contacts);
+          if (st?.active || (st && st.left > 0)) contactForces(A, B, null, st, t, contacts);
           continue;
         }
         const key = A.id + '|' + B.id;
         let st = pairs.get(key);
-        if (!st) pairs.set(key, (st = { dmax: 0, active: false, contact: null, vA0: [0, 0], vB0: [0, 0], quiet: 0, peakPoly: [], crushA: 0, crushB: 0, nLocal: null, peakN: [1, 0], locA: [], locB: [], nA: [0, 1], nB: [0, 1] }));
+        if (!st) pairs.set(key, (st = newPair()));
         contactForces(A, B, null, st, t, contacts);
       }
       if (A.rested && A.kind === 'static') continue;
@@ -851,7 +1025,7 @@ function stepOnce(bodies: Body[], input: SimInput, t: number, pairs: Map<string,
         if ((ax - o.cx) ** 2 + (az - o.cz) ** 2 > r * r) continue;
         const key = A.id + '#' + o.id;
         let st = pairs.get(key);
-        if (!st) pairs.set(key, (st = { dmax: 0, active: false, contact: null, vA0: [0, 0], vB0: [0, 0], quiet: 0, peakPoly: [], crushA: 0, crushB: 0, nLocal: null, peakN: [1, 0], locA: [], locB: [], nA: [0, 1], nB: [0, 1] }));
+        if (!st) pairs.set(key, (st = newPair()));
         contactForces(A, null, o, st, t, contacts);
       }
     }
@@ -981,7 +1155,32 @@ export function simulate(input: SimInput): SimResult {
   let t = input.start;
   for (const b of bodies) recordFrame(b, t);
   const tEnd = input.end;
+  // Posiciones ② del croquis: en t = 0 cada vehículo está exactamente donde se dibujó. La pequeña
+  // diferencia que deja el seguimiento de la ruta se reparte suavemente en el segundo y medio previo
+  // (equivale a un leve ajuste de la dirección), de modo que el choque empieza en el punto de colisión.
+  let snapped = input.start >= 0;
+  const corr: { b: Body; n: number; dx: number; dz: number; dh: number }[] = [];
   while (t < tEnd - 1e-9) {
+    if (!snapped && t >= -1e-9) {
+      snapped = true;
+      for (const b of bodies) {
+        const cp = b.e.drive?.colPose;
+        if (!cp || b.hadContact || (b.kind !== 'car' && b.kind !== 'two')) continue;
+        const [cx0, cz0] = b.center();
+        const psi = (cp.h * Math.PI) / 180;
+        let dpsi = psi - b.psi;
+        dpsi = Math.atan2(Math.sin(dpsi), Math.cos(dpsi));
+        if (Math.hypot(cp.x - cx0, cp.z - cz0) > 6 || Math.abs(dpsi) > 0.6) continue; // demasiado lejos: no forzar
+        const c = Math.cos(dpsi);
+        const sn = Math.sin(dpsi);
+        [b.vx, b.vz] = [b.vx * c - b.vz * sn, b.vx * sn + b.vz * c];
+        b.psi += dpsi;
+        const [fx, fz] = b.fwd;
+        b.x = cp.x + fx * b.cgAhead;
+        b.z = cp.z + fz * b.cgAhead;
+        corr.push({ b, n: b.frames.length, dx: cp.x - cx0, dz: cp.z - cz0, dh: (dpsi * 180) / Math.PI });
+      }
+    }
     stepOnce(bodies, input, t, pairs, contacts, step % 5 === 0, true);
     t += DT;
     step++;
@@ -990,6 +1189,30 @@ export function simulate(input: SimInput): SimResult {
       // todo en reposo y sin contactos abiertos: ya no cambiará nada (frameAt mantiene el último estado)
       if (t > 0 && bodies.every((b) => b.rested) && ![...pairs.values()].some((st) => st.active)) break;
     }
+  }
+  // reparto suave de la corrección de la posición ② en los fotogramas y huellas anteriores
+  const TB = Math.min(1.5, -input.start);
+  const wAt = (tt: number) => {
+    if (tt >= -1e-6) return 1;
+    const u = Math.max(0, (tt + TB) / TB);
+    return u * u * (3 - 2 * u);
+  };
+  for (const c of corr) {
+    for (let i = 0; i < c.n; i++) {
+      const f = c.b.frames[i];
+      const w = wAt(f.t);
+      if (w <= 0) continue;
+      f.x += c.dx * w;
+      f.z += c.dz * w;
+      f.h = (((f.h + c.dh * w) % 360) + 360) % 360;
+    }
+    for (const m of c.b.marks)
+      for (const q of m.pts) {
+        if (q.t >= 0) continue;
+        const w = wAt(q.t);
+        q.x += c.dx * w;
+        q.z += c.dz * w;
+      }
   }
   // cerrar contactos abiertos
   for (const [key, st] of pairs) {

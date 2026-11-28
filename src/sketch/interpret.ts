@@ -238,6 +238,8 @@ export function projectFromSketch(r: SketchResult, w: number, h: number, imageUr
   if (!placed.length) warnings.push('No se ha reconocido ninguna vía: dibújala con la herramienta Carretera sobre el calco.');
 
   // ---- Vehículos ----
+  const colTags = new Map<string, string>();
+  const tagOf = (v: VehicleEntity, _role: 'col') => (colTags.get(v.id) ? ` (${colTags.get(v.id)})` : '');
   const vehicles: SketchBuildInfo['vehicles'] = [];
   for (const [i, v] of r.vehicles.entries()) {
     const tipo = VTYPE[v.type.toLowerCase()] ?? 'compacto';
@@ -271,8 +273,59 @@ export function projectFromSketch(r: SketchResult, w: number, h: number, imageUr
       marks,
     };
     E.push(ve);
+    const ct = v.positions.find((q) => q.role === 'col')?.tag;
+    if (ct) colTags.set(ve.id, ct);
     vehicles.push({ label, positions: tags });
     if (!marks.col) warnings.push(`${label}: el croquis no muestra su posición en el choque (②); colócala tú o se deducirá.`);
+  }
+
+  // ---- Posiciones ② en contacto en el punto de colisión ----
+  // En el croquis los rectángulos de choque se dibujan a ojo; el PC es la referencia. Cada vehículo
+  // se desplaza lo mínimo para que el PC quede sobre el lado con el que golpea o es golpeado (el que
+  // mira al otro vehículo), y así el choque empieza exactamente ahí.
+  const colVeh = E.filter((e): e is VehicleEntity => e.kind === 'vehicle' && !!e.marks?.col);
+  let pc: { x: number; z: number } | null = r.impact ? { x: 0, z: 0 } : null;
+  if (!pc && colVeh.length >= 2) {
+    const [a, b] = colVeh;
+    pc = { x: (a.marks!.col!.x + b.marks!.col!.x) / 2, z: (a.marks!.col!.z + b.marks!.col!.z) / 2 };
+  }
+  if (pc && colVeh.length) {
+    for (const v of colVeh) {
+      const cp = v.marks!.col!;
+      const others = colVeh.filter((o) => o !== v);
+      const tgt = others.length ? { x: others.reduce((a, o) => a + o.marks!.col!.x, 0) / others.length, z: others.reduce((a, o) => a + o.marks!.col!.z, 0) / others.length } : pc;
+      const f = [Math.sin(cp.h * DEG), -Math.cos(cp.h * DEG)];
+      const rt = [Math.cos(cp.h * DEG), Math.sin(cp.h * DEG)];
+      const hl = v.spec.L / 2;
+      const hw = v.spec.W / 2;
+      const lon = (pc.x - cp.x) * f[0] + (pc.z - cp.z) * f[1];
+      const lat = (pc.x - cp.x) * rt[0] + (pc.z - cp.z) * rt[1];
+      // lado que mira al otro vehículo (en ejes del vehículo, normalizado por sus dimensiones)
+      const oLon = ((tgt.x - cp.x) * f[0] + (tgt.z - cp.z) * f[1]) / hl;
+      const oLat = ((tgt.x - cp.x) * rt[0] + (tgt.z - cp.z) * rt[1]) / hw;
+      let sf: number;
+      let sr: number;
+      const clampAbs = (x: number, m: number) => Math.max(-m, Math.min(m, x));
+      if (Math.abs(oLon) >= Math.abs(oLat)) {
+        const edge = oLon >= 0 ? hl : -hl; // frontal o trasera
+        sf = lon - edge;
+        sr = lat - clampAbs(lat, hw * 0.85);
+      } else {
+        const edge = oLat >= 0 ? hw : -hw; // costado derecho o izquierdo
+        sr = lat - edge;
+        sf = lon - clampAbs(lon, hl * 0.9);
+      }
+      const moved = Math.hypot(sf, sr);
+      if (moved < 0.03) continue;
+      if (moved > 6) {
+        warnings.push(`${v.label}: su posición ② está a ${moved.toFixed(1)} m del punto de colisión; revísala.`);
+        continue;
+      }
+      const np = { x: cp.x + f[0] * sf + rt[0] * sr, z: cp.z + f[1] * sf + rt[1] * sr, h: cp.h };
+      v.marks!.col = np;
+      if (v.x === cp.x && v.z === cp.z) Object.assign(v, { x: np.x, z: np.z });
+      if (moved > 0.4) warnings.push(`${v.label}${tagOf(v, 'col')}: desplazada ${moved.toFixed(1)} m para tocar el punto de colisión.`);
+    }
   }
 
   // ---- Señales y marcas ----
@@ -386,6 +439,9 @@ export function projectFromSketch(r: SketchResult, w: number, h: number, imageUr
   for (const t of texts) if (['cause', 'legend', 'note', 'direction', 'road_name', 'pk', 'scale'].includes(t.meaning ?? '')) lines.push(`«${t.text}»`);
   p.notes = lines.join('\n');
   p.entities = E;
-  p.impact = { x: 0, z: 0 };
+  if (pc) {
+    p.impact = pc;
+    p.impactLocked = true;
+  }
   return { project: p, assets, info: { scale: s, scaleFrom: from, roads: placed.length, vehicles, signs, warnings: [...warnings, ...(r.uncertainties ?? [])] } };
 }

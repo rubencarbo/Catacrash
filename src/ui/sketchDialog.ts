@@ -157,7 +157,7 @@ export function openSketchReader(ed: Editor, image: Blob, opts: Opts = {}) {
 }
 
 /** Monta el escenario a partir de una lectura (también lo usan las pruebas). */
-export async function buildSketchScene(ed: Editor, r: SketchResult, w: number, hh: number, imageUrl: string | null, name?: string) {
+export async function buildSketchScene(ed: Editor, r: SketchResult, w: number, hh: number, imageUrl: string | null, name?: string, opts: { fit?: boolean } = {}) {
   const { project, assets, info } = projectFromSketch(r, w, hh, imageUrl, name);
   ed.store.load(project, assets);
   ed.setTool('select');
@@ -173,5 +173,11 @@ export async function buildSketchScene(ed: Editor, r: SketchResult, w: number, h
   const veh = info.vehicles.map((v) => `${v.label} (${v.positions.join(', ')})`).join(' · ');
   toast(`Escenario creado desde el croquis: ${info.roads} vía(s), ${info.vehicles.length} vehículo(s) ${veh ? `— ${veh}` : ''}. Escala: ${info.scale.toFixed(3)} m/px según ${info.scaleFrom}. Revisa las posiciones sobre el calco y arrastra las que no encajen.`, 'info', 14000);
   if (info.warnings.length) setTimeout(() => toast(info.warnings.slice(0, 3).join(' · '), 'info', 12000), 600);
+  // las velocidades no las dice el dibujo: se averiguan con las posiciones finales (③ / PF)
+  if (opts.fit !== false && project.entities.some((e) => e.kind === 'vehicle' && e.marks?.col && e.marks?.fin)) {
+    await new Promise((res) => setTimeout(res, 900));
+    const { openFitDialog } = await import('./fitDialog');
+    openFitDialog(ed, undefined, { autoRun: true });
+  }
   return info;
 }

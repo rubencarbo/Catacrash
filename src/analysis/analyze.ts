@@ -47,6 +47,8 @@ export interface VehAnalysis {
   sight: { other: string; t: number; dist: number; v: number; fromStart: boolean } | null;
   reaction: number | null;
   stop: { dStop: number; dAvail: number; could: boolean } | null;
+  /** Señal de prioridad (STOP / ceda el paso) que encontró antes del choque. */
+  priority: { sign: string; vMin: number; vPass: number; t: number; obeyed: boolean } | null;
   rest: { t: number | null; x: number; z: number; distFromImpact: number | null } | null;
   skid: number;
 }
@@ -252,6 +254,8 @@ export function analyze(world: World): Analysis {
 
   // ---- señales de velocidad ----
   const speedSigns = p.entities.filter((e): e is PropEntity => e.kind === 'prop' && e.type === 'senal' && e.params.senal === 'velocidad');
+  const prioSigns = p.entities.filter((e): e is PropEntity => e.kind === 'prop' && e.type === 'senal' && (e.params.senal === 'stop' || e.params.senal === 'ceda'));
+  const stopLines = p.entities.filter((e): e is PropEntity => e.kind === 'prop' && e.type === 'linea_detencion');
 
   // ---- par principal: primer contacto entre dos vehículos ----
   const vv = sim.contacts.filter((c) => byId.has(c.b) && c.peakForce > 2000).sort((a, b) => a.t0 - b.t0);
@@ -305,6 +309,7 @@ export function analyze(world: World): Analysis {
       sight: null,
       reaction: null,
       stop: null,
+      priority: null,
       rest: null,
       skid: 0,
     };
@@ -335,6 +340,9 @@ export function analyze(world: World): Analysis {
     for (const f of pre) {
       const rp = roadPos(world, roads, f.x, f.z, f.h);
       if (!rp) continue;
+      // cruzando otra vía (en un cruce) no se invade su carril contrario: solo cuenta circulando por ella
+      const hr = (f.h * Math.PI) / 180;
+      if (Math.abs(rp.q.tx * Math.sin(hr) - rp.q.tz * Math.cos(hr)) < 0.8) continue;
       const lats = corners(f, v.spec.L, v.spec.W).map(([x, z]) => rp.lat(x, z));
       const inv = -Math.min(...lats);
       if (inv > 0.2) {
@@ -352,6 +360,34 @@ export function analyze(world: World): Analysis {
         }
         a.offRoad.max = Math.max(a.offRoad.max, off);
       }
+    }
+    // señales de prioridad (STOP, ceda el paso) que encara antes del choque
+    for (const sg of prioSigns) {
+      const s0 = path.project(sg.x, sg.z);
+      const [px, pz] = path.point(s0);
+      const [tx, tz] = path.tangent(s0);
+      const hdg = (Math.atan2(tx, -tz) * 180) / Math.PI;
+      if (Math.hypot(px - sg.x, pz - sg.z) > 9 || angDiff(hdg, sg.rot) > 60) continue;
+      // punto de detención: la línea de detención que tenga delante (si la hay), si no la señal
+      const lines = stopLines
+        .map((ln) => {
+          const sl = path.project(ln.x, ln.z);
+          const [lx, lz] = path.point(sl);
+          return Math.hypot(lx - ln.x, lz - ln.z) < 4 && sl >= s0 - 3 && sl <= s0 + 15 ? sl : null;
+        })
+        .filter((x): x is number => x !== null);
+      const sStop = lines.length ? Math.max(...lines) : s0;
+      if (sLimit < sStop - 0.5) continue; // no llegó a la señal antes del choque
+      const near = pre.filter((f) => {
+        const sf = sAt(f);
+        return sf >= sStop - 12 && sf <= sStop + 1;
+      });
+      if (!near.length) continue;
+      const vMin = Math.min(...near.map((f) => f.v)) * 3.6;
+      const code = String(sg.params.senal);
+      const fPass = near.reduce((b, f) => (Math.abs(sAt(f) - sStop) < Math.abs(sAt(b) - sStop) ? f : b));
+      a.priority = { sign: code === 'stop' ? 'STOP' : 'ceda el paso', vMin: Math.round(vMin), vPass: Math.round(fPass.v * 3.6), t: fPass.t, obeyed: code === 'stop' ? vMin < 3 : vMin < 15 };
+      if (!a.priority.obeyed) events.push({ t: fPass.t, veh: v.id, kind: 'senal', text: code === 'stop' ? `${a.label} rebasa la línea de STOP sin detenerse, a ${a.priority.vPass} km/h.` : `${a.label} entra en el cruce sin ceder el paso, a ${a.priority.vPass} km/h.` });
     }
     if (a.invasion && pre.length) {
       const f = pre[pre.length - 1];
@@ -468,6 +504,12 @@ export function analyze(world: World): Analysis {
         level: a.invasion.max > 0.5 ? 'alto' : 'medio',
         text: `${a.label} invadió el carril contrario desde ${ts(a.invasion.t0)}, hasta ${n1(a.invasion.max)} m${a.invasion.atContact > 0.05 ? ` (${n1(a.invasion.atContact)} m en el momento del choque)` : ''}.`,
       });
+    if (a.priority && !a.priority.obeyed)
+      factors.push({
+        level: 'alto',
+        text: a.priority.sign === 'STOP' ? `${a.label} no se detuvo en el STOP: la velocidad mínima al llegar a la línea fue de ${a.priority.vMin} km/h y la rebasó a ${a.priority.vPass} km/h.` : `${a.label} no cedió el paso: entró en el cruce a ${a.priority.vPass} km/h.`,
+      });
+    else if (a.priority) factors.push({ level: 'info', text: `${a.label} se detuvo en el ${a.priority.sign} (velocidad mínima ${a.priority.vMin} km/h).` });
     if (a.offRoad) factors.push({ level: 'medio', text: `${a.label} se salió de la calzada por su derecha (${n1(a.offRoad.max)} m) desde ${ts(a.offRoad.t0)}.` });
     if (a.curve && a.contactT !== null) {
       const vNow = a.v0;
@@ -603,11 +645,44 @@ export function analyze(world: World): Analysis {
 
   // ---- conclusión (prudente) ----
   const conclusion: string[] = [];
-  const invaders = out.filter((a) => a.invasion && a.invasion.max > 0.3);
+  // rumbo de cada vehículo del par en el instante del choque (para saber si venían cruzados o de frente)
+  const hAtContact = (id: string) => {
+    const sv = sim.vehicles.get(id);
+    const t = sv?.firstContact;
+    return sv && t !== null && t !== undefined ? frameAt(sv, t - 0.02).h : null;
+  };
+  const crossing = (id: string) => {
+    if (!pair || !pair.includes(id)) return null;
+    const other = pair[0] === id ? pair[1] : pair[0];
+    const h1 = hAtContact(id);
+    const h2 = hAtContact(other);
+    return h1 !== null && h2 !== null ? { other, ang: angDiff(h1, h2) } : null;
+  };
+  // la invasión del carril contrario importa cuando el otro venía de frente por esa vía (no en un cruce)
+  const invaders = out.filter((a) => a.invasion && a.invasion.max > 0.3 && (() => {
+    if (!pair?.includes(a.id)) return true;
+    const h1 = hAtContact(a.id);
+    const h2 = hAtContact(pair[0] === a.id ? pair[1] : pair[0]);
+    return h1 === null || h2 === null || angDiff(h1, h2) > 120;
+  })());
   const speeders = out.filter((a) => a.excess !== null && a.excess > 5);
   const late = out.filter((a) => a.reaction !== null && a.reaction > 1.5);
-  if (invaders.length === 1) conclusion.push(`El factor determinante parece ser la invasión del carril contrario por ${invaders[0].label}.`);
-  else if (invaders.length > 1) conclusion.push(`Ambos vehículos ocupaban parte del carril contrario.`);
+  const violators = out.filter((a) => a.priority && (!a.priority.obeyed || ((crossing(a.id)?.ang ?? 0) > 45 && (crossing(a.id)?.ang ?? 0) < 135)));
+  for (const a of violators) {
+    const cr = crossing(a.id);
+    const vs = cr ? ` a ${lbl(cr.other)}, que circulaba por la vía preferente` : '';
+    if (a.priority!.sign === 'STOP')
+      conclusion.push(
+        a.priority!.obeyed
+          ? `El factor determinante parece ser que ${a.label} se detuvo en el STOP pero no cedió el paso${vs}.`
+          : `El factor determinante parece ser que ${a.label} no respetó la señal de STOP: rebasó la línea a ${a.priority!.vPass} km/h sin detenerse${vs ? ` y sin ceder el paso${vs}` : ''}.`,
+      );
+    else conclusion.push(`El factor determinante parece ser que ${a.label} no cedió el paso${vs} (entró a ${a.priority!.vPass} km/h).`);
+  }
+  if (violators.length) {
+    // con una infracción de prioridad clara, la invasión de quien la comete es consecuencia, no causa
+  } else if (invaders.length === 1) conclusion.push(`El factor determinante parece ser la invasión del carril contrario por ${invaders[0].label}.`);
+  else if (invaders.length > 1 && !violators.length) conclusion.push(`Ambos vehículos ocupaban parte del carril contrario.`);
   if (speeders.length) conclusion.push(`${speeders.map((a) => a.label).join(' y ')} ${speeders.length > 1 ? 'circulaban' : 'circulaba'} por encima del límite, lo que ${invaders.some((i) => speeders.includes(i)) ? 'probablemente contribuyó a la invasión en la curva y ' : ''}redujo el margen para evitar el choque.`);
   if (late.length) conclusion.push(`${late.map((a) => a.label).join(' y ')} ${late.length > 1 ? 'reaccionaron' : 'reaccionó'} tarde.`);
   const avoidedBy = alternatives.filter((x) => x.avoided);

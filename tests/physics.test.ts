@@ -123,5 +123,31 @@ const check = (name: string, val: number, lo: number, hi: number, unit = '') => 
   check('Poste: aplastamiento mayor que contra el muro', r.contacts[0]?.crushA ?? 0, 0.55, 1.2, ' m');
   check('Poste: zona dañada estrecha', z ? z.to - z.from : 1, 0, 0.35, '');
 }
+// 9) Choque en ángulo recto en un cruce (A a 60 km/h hacia el este, B a 30 km/h hacia el norte):
+//    la energía cinética solo puede disminuir, ninguno sale más rápido de lo que iba el más rápido,
+//    los giros quedan acotados y ambos se detienen en pocos segundos.
+{
+  const lineX = (x0: number, x1: number, z: number) => [{ x: x0, z, h: null }, { x: x1, z, h: null }];
+  const A = car('A', 0, -1.2, 90, { path: lineX(-200, 200, -1.2), speed: 60, sync: true, abs: true, events: [], syncPoint: { x: 0.2, z: -1.2 } });
+  const B = car('B', 1.2, 0, 0, { path: [{ x: 1.2, z: 200, h: null }, { x: 1.2, z: -200, h: null }], speed: 30, sync: true, abs: true, events: [], syncPoint: { x: 1.2, z: -0.2 } });
+  const r = simulate(base([A, B], { end: 8 }));
+  const KE = (t: number) => ['A', 'B'].reduce((s, id) => s + 0.5 * 1300 * frameAt(r.vehicles.get(id)!, t).v ** 2, 0);
+  const c = r.contacts[0];
+  const t0 = c?.t0 ?? 0;
+  check('Cruce: hay choque', c ? 1 : 0, 1, 1);
+  check('Cruce: energía de traslación tras el choque / antes', KE(t0 + 0.2) / KE(t0 - 0.02), 0, 0.85);
+  const vmax = Math.max(...['A', 'B'].map((id) => Math.max(...r.vehicles.get(id)!.frames.filter((f) => f.t > t0 + 0.05).map((f) => f.v)))) * 3.6;
+  check('Cruce: nadie sale más rápido que antes del choque', vmax, 0, 60);
+  const rot = (id: string) => {
+    const fr = r.vehicles.get(id)!.frames.filter((f) => f.t >= t0);
+    let s = 0;
+    for (let i = 1; i < fr.length; i++) s += Math.abs(((fr[i].h - fr[i - 1].h + 540) % 360) - 180);
+    return s;
+  };
+  check('Cruce: giro total de B tras el choque', rot('B'), 10, 360, '°');
+  check('Cruce: giro total de A tras el choque', rot('A'), 0, 270, '°');
+  check('Cruce: ambos se detienen (s tras el choque)', Math.max(r.vehicles.get('A')!.restTime ?? 99, r.vehicles.get('B')!.restTime ?? 99) - t0, 0.5, 5, ' s');
+  check('Cruce: energía disipada en deformación', (c?.energy ?? 0) / 1000, 40, 220, ' kJ');
+}
 console.log(fails ? `\n${fails} comprobaciones fuera de rango` : '\nTodo dentro de rango');
 process.exit(fails ? 1 : 0);

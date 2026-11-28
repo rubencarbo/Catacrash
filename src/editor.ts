@@ -512,6 +512,8 @@ export class Editor {
   /** Fija una posición del croquis de un vehículo (dentro de una edición abierta) y lo recalcula todo. */
   commitMark(e: VehicleEntity, key: string, pose: Pose | null) {
     setMark(e, key, pose);
+    // al mover una posición de choque, el punto de colisión vuelve a deducirse de las posiciones ②
+    if (key === 'col') delete this.store.project.impactLocked;
     applyAllMarks(this.world, this.store.project);
     this.store.end();
     this.store.notify({ type: 'env' });

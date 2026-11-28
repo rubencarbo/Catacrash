@@ -169,11 +169,11 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
   const leon = specFromRecord({ marca: 'Seat', modelo: 'Leon', generacion: 'Seat Leon III', desde: 2012, hasta: 2016, carroceria: 'Hatchback', masa: 1346, mma: 1910, L: 4271, W: 1816, H: 1435, batalla: 2631, viaD: 1536, viaT: 1510, traccion: 'Tracción delantera', neumaticos: '225/40 R18', fuente: 'https://www.auto-data.net/es/seat-leon-iii-cupra-2.0-tsi-290hp-dsg-22733' });
   const ateca = specFromRecord({ marca: 'Seat', modelo: 'Ateca', generacion: 'Seat Ateca I', desde: 2016, hasta: 2020, carroceria: 'SUV', masa: 1466, mma: 2080, L: 4363, W: 1841, H: 1611, batalla: 2630, viaD: 1572, viaT: 1544, volD: 868, volT: 865, traccion: 'Tracción en todas las ruedas (4x4)', neumaticos: '215/50 R18', fuente: 'https://www.auto-data.net/es/seat-ateca-i-2.0-tsi-190hp-4drive-dsg-51365' });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -4.7, z: 7.2, heading: 4, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
+    id: newId('v'), kind: 'vehicle', name: 'A · Seat León III', label: 'A', spec: leon, x: -2.7, z: 2.4, heading: 137, color: '#b71c1c', plate: '4821 HZK', occupants: 1, cargo: 0, photos: [],
     damage: [],
   });
   E.push({
-    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -0.3, z: 5.0, heading: 3, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
+    id: newId('v'), kind: 'vehicle', name: 'B · Seat Ateca', label: 'B', spec: ateca, x: -0.9, z: 5.8, heading: 349, color: '#1e4f8f', plate: '1290 KLM', occupants: 2, cargo: 0, photos: [],
     damage: [],
   });
 
@@ -248,12 +248,12 @@ export function demoProject(): { project: Project; assets: Map<string, string> }
       ini: { x: -34.52, z: -87.67, h: 154.3 },
       mid: [{ x: -9.57, z: -34.2, h: 161.9 }],
       col: { x: -2.45, z: 0.12, h: 177.7 },
-      fin: { x: -4.7, z: 7.2, h: 4 },
+      fin: { x: -2.7, z: 2.4, h: 137 },
     };
     B.marks = {
       ini: { x: -21.62, z: 65.33, h: 30.5 },
       col: { x: -1.34, z: 4.34, h: 14.8 },
-      fin: { x: -0.3, z: 5, h: 3 },
+      fin: { x: -0.9, z: 5.8, h: 349 },
     };
   }
 
@@ -327,10 +327,10 @@ function makeSketch(): string | null {
   };
   car(-4.5, -25, Math.PI, 'A1', '#b01c1c', true);
   car(-3.5, 1, Math.PI + 0.25, 'A2', '#b01c1c');
-  car(-4.7, 7.2, (4 * Math.PI) / 180, 'A3', '#b01c1c');
+  car(-2.7, 2.4, (137 * Math.PI) / 180, 'A3', '#b01c1c');
   car(-6.5, 24, -0.25, 'B1', '#0d6b2f', true);
   car(-4.3, 5.2, -0.1, 'B2', '#0d6b2f');
-  car(-0.3, 5.0, (3 * Math.PI) / 180, 'B3', '#0d6b2f');
+  car(-0.9, 5.8, (349 * Math.PI) / 180, 'B3', '#0d6b2f');
   // Trayectorias
   pen('#b01c1c', 2.5);
   curve([[-4.5, -22], [-3.5, -12], [-2.8, -3]]);
